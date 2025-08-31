@@ -1,0 +1,444 @@
+// Prisma schema for MATIS backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- Enums ----------------
+
+enum UserStatus {
+  ACTIVE
+  PENDING
+  SUSPENDED
+  INACTIVE
+}
+
+enum VehicleStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+  DECOMMISSIONED
+}
+
+enum InsuranceStatus {
+  ACTIVE
+  EXPIRED
+  PENDING
+}
+
+enum RegistrationStatus {
+  VALID
+  EXPIRED
+  PENDING
+}
+
+enum RouteStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LoanType {
+  NORMAL
+  EMERGENCY
+}
+
+enum LoanStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DISBURSED
+  REPAID
+  DEFAULTED
+}
+
+enum TransactionType {
+  DEPOSIT
+  LOAN_REPAYMENT
+  INSURANCE_PAYMENT
+  OPERATIONS_FEE
+  SALARY
+  EXPENSE
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum PaymentCategory {
+  SAVINGS
+  LOAN_REPAYMENT
+  INSURANCE
+  OPERATIONS
+}
+
+enum SalaryStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+enum SalaryAdvanceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DISBURSED
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum ContactMessageType {
+  GENERAL
+  MEMBERSHIP
+  LOANS
+  TECHNICAL
+  PARTNERSHIP
+}
+
+enum ExitRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PROCESSED
+}
+
+// ---------------- Core Identity & Access ----------------
+
+model Role {
+  id          String          @id @default(uuid())
+  name        String          @unique
+  description String?
+  createdAt   DateTime        @default(now())
+  users       User[]
+  rolePermissions RolePermission[]
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  name        String @unique
+  description String?
+  category    String?
+  rolePermissions RolePermission[]
+}
+
+model RolePermission {
+  role       Role      @relation(fields: [roleId], references: [id])
+  roleId     String
+  permission Permission @relation(fields: [permissionId], references: [id])
+  permissionId String
+
+  @@id([roleId, permissionId])
+}
+
+model User {
+  id                    String   @id @default(uuid())
+  memberNumber          BigInt   @unique
+  firstName             String
+  lastName              String
+  email                 String   @unique
+  phone                 String?
+  passwordHash          String
+  roleId                String?
+  role                  Role?    @relation(fields: [roleId], references: [id])
+  status                UserStatus @default(PENDING)
+  membershipType        String?
+  profileCategory       String?
+  idNumber              String?
+  dateOfBirth           DateTime?
+  county                String?
+  town                  String?
+  address               String?
+  businessName          String?
+  businessType          String?
+  shareCapital          Decimal? @default(0)
+  savingsBalance        Decimal? @default(0)
+  loanBalance           Decimal? @default(0)
+  totalDeposits         Decimal? @default(0)
+  nextOfKin             String?
+  nextOfKinPhone        String?
+  occupation            String?
+  registrationDate      DateTime @default(now())
+  lastLogin             DateTime?
+  hasCompletedCapitalPayment Boolean @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime?
+  vehicles             Vehicle[] @relation("OwnerVehicles")
+  driverAssignments    Vehicle[] @relation("DriverVehicles")
+  vehicleDriverAssignments VehicleDriverAssignment[] @relation("AssignmentsUser")
+  loansApplied         Loan[]    @relation("LoanApplicant")
+  loansApproved        Loan[]    @relation("LoanApprover")
+  loanGuarantor        LoanGuarantor[]
+  savingsAccounts      SavingsAccount[]
+  payments             Payment[]
+  paymentsDriver       Payment[] @relation("PaymentDriver")
+  transactions         Transaction[]
+  staffSalaries        StaffSalary[] @relation("SalaryStaff")
+  salaryAdvances       SalaryAdvance[] @relation("AdvanceStaff")
+  salaryAdvanceApprovals SalaryAdvance[] @relation("AdvanceApprover")
+  expensesCreated      Expense[] @relation("ExpenseCreator")
+  capitalPayments      CapitalPayment[]
+  exitRequests         ExitRequest[]
+  exitProcessed        ExitRequest[] @relation("ExitProcessor")
+  contactMessages      ContactMessage[]
+}
+
+// ---------------- Fleet & Route Management ----------------
+
+model Route {
+  id              String        @id @default(uuid())
+  name            String        @unique
+  startPoint      String
+  endPoint        String
+  distanceKm      Decimal?
+  estimatedTime   String?
+  vehiclesAssigned Int?         @default(0)
+  fare            Decimal?
+  status          RouteStatus   @default(ACTIVE)
+  dateCreated     DateTime      @default(now())
+  vehicles        Vehicle[]
+  payments        Payment[]
+}
+
+model Vehicle {
+  id                  String   @id @default(uuid())
+  ownerId             String
+  owner               User     @relation("OwnerVehicles", fields: [ownerId], references: [id])
+  plateNumber         String   @unique
+  model               String?
+  vehicleType         String?
+  capacity            Int?
+  chassisNumber       String?
+  engineNumber        String?
+  yearOfManufacture   Int?
+  routeId             String?
+  route               Route?   @relation(fields: [routeId], references: [id])
+  status              VehicleStatus @default(ACTIVE)
+  driverId            String?
+  driver              User?    @relation("DriverVehicles", fields: [driverId], references: [id])
+  insuranceStatus     InsuranceStatus @default(PENDING)
+  insuranceProvider   String?
+  policyType          String?
+  premium             Decimal?
+  insuranceExpiry     DateTime?
+  registrationStatus  RegistrationStatus @default(PENDING)
+  registrationExpiry  DateTime?
+  dateAdded           DateTime @default(now())
+
+  driverAssignments   VehicleDriverAssignment[]
+  loans               Loan[]
+  savingsAccounts     SavingsAccount[]
+  payments            Payment[]
+  transactions        Transaction[]
+  insurancePolicies   InsurancePolicy[]
+}
+
+model VehicleDriverAssignment {
+  id          String   @id @default(uuid())
+  vehicleId   String
+  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
+  driverId    String
+  driver      User     @relation("AssignmentsUser", fields: [driverId], references: [id])
+  assignedAt  DateTime @default(now())
+  releasedAt  DateTime?
+}
+
+// ---------------- Financials ----------------
+
+model Loan {
+  id                    String   @id @default(uuid())
+  applicantId           String
+  applicant             User     @relation("LoanApplicant", fields: [applicantId], references: [id])
+  vehicleId             String?
+  vehicle               Vehicle? @relation(fields: [vehicleId], references: [id])
+  type                  LoanType
+  amount                Decimal
+  purpose               String?
+  savingsAtApplication  Decimal?
+  applicationDate       DateTime @default(now())
+  status                LoanStatus @default(PENDING)
+  creditScore           Int?
+  monthlyIncome         Decimal?
+  existingLoans         Decimal?
+  urgency               String?
+  expectedRepaymentDate DateTime?
+  approvedById          String?
+  approvedBy            User?    @relation("LoanApprover", fields: [approvedById], references: [id])
+  approvedAt            DateTime?
+  guarantors            LoanGuarantor[]
+  payments              Payment[]
+}
+
+model LoanGuarantor {
+  id          String @id @default(uuid())
+  loanId      String
+  loan        Loan   @relation(fields: [loanId], references: [id])
+  guarantorId String
+  guarantor   User   @relation(fields: [guarantorId], references: [id])
+}
+
+model SavingsAccount {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  vehicleId     String?
+  vehicle       Vehicle? @relation(fields: [vehicleId], references: [id])
+  accountType   String?
+  balance       Decimal? @default(0)
+  monthlyTarget Decimal?
+  lastDeposit   DateTime?
+  createdAt     DateTime @default(now())
+  transactions  Transaction[]
+}
+
+model Payment {
+  id           String   @id @default(uuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  vehicleId    String?
+  vehicle      Vehicle? @relation(fields: [vehicleId], references: [id])
+  driverId     String?
+  driver       User?    @relation("PaymentDriver", fields: [driverId], references: [id])
+  routeId      String?
+  route        Route?   @relation(fields: [routeId], references: [id])
+  paymentDate  DateTime @default(now())
+  totalAmount  Decimal
+  mpesaReference String?
+  status       PaymentStatus @default(PENDING)
+  allocations  PaymentAllocation[]
+  transactions Transaction[]
+  loan         Loan?   @relation(fields: [loanId], references: [id])
+  loanId       String?
+}
+
+model PaymentAllocation {
+  id         String @id @default(uuid())
+  paymentId  String
+  payment    Payment @relation(fields: [paymentId], references: [id])
+  category   PaymentCategory
+  amount     Decimal
+}
+
+model Transaction {
+  id            String   @id @default(uuid())
+  accountId     String
+  account       SavingsAccount @relation(fields: [accountId], references: [id])
+  vehicleId     String?
+  vehicle       Vehicle? @relation(fields: [vehicleId], references: [id])
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id])
+  paymentId     String?
+  payment       Payment? @relation(fields: [paymentId], references: [id])
+  date          DateTime @default(now())
+  type          TransactionType
+  amount        Decimal
+  balanceAfter  Decimal?
+  description   String?
+}
+
+model InsurancePolicy {
+  id            String @id @default(uuid())
+  vehicleId     String
+  vehicle       Vehicle @relation(fields: [vehicleId], references: [id])
+  provider      String?
+  policyType    String?
+  premiumAmount Decimal?
+  startDate     DateTime?
+  expiryDate    DateTime?
+  status        InsuranceStatus @default(PENDING)
+}
+
+// ---------------- Staff Operations & Expenses ----------------
+
+model StaffSalary {
+  id             String @id @default(uuid())
+  staffId        String
+  staff          User   @relation("SalaryStaff", fields: [staffId], references: [id])
+  basicSalary    Decimal
+  allowances     Decimal?
+  nhif           Decimal?
+  nssf           Decimal?
+  paye           Decimal?
+  netSalary      Decimal
+  bankName       String?
+  accountNumber  String?
+  payDate        DateTime?
+  status         SalaryStatus @default(PENDING)
+  createdAt      DateTime @default(now())
+}
+
+model SalaryAdvance {
+  id             String @id @default(uuid())
+  staffId        String
+  staff          User   @relation("AdvanceStaff", fields: [staffId], references: [id])
+  amount         Decimal
+  reason         String?
+  applicationDate DateTime @default(now())
+  status         SalaryAdvanceStatus @default(PENDING)
+  approvedById   String?
+  approvedBy     User?  @relation("AdvanceApprover", fields: [approvedById], references: [id])
+  approvedAt     DateTime?
+}
+
+model Expense {
+  id          String @id @default(uuid())
+  category    String?
+  description String?
+  amount      Decimal
+  date        DateTime @default(now())
+  status      ExpenseStatus @default(PENDING)
+  vendor      String?
+  createdById String?
+  createdBy   User?  @relation("ExpenseCreator", fields: [createdById], references: [id])
+}
+
+// ---------------- Membership & Communication ----------------
+
+model CapitalPayment {
+  id              String @id @default(uuid())
+  userId          String
+  user            User   @relation(fields: [userId], references: [id])
+  amount          Decimal
+  phoneNumber     String?
+  mpesaReference  String?
+  paymentDate     DateTime @default(now())
+  status          PaymentStatus @default(PENDING)
+}
+
+model ExitRequest {
+  id             String @id @default(uuid())
+  userId         String
+  user           User   @relation(fields: [userId], references: [id])
+  email          String
+  reason         String?
+  additionalComments String?
+  netAmount      Decimal?
+  requestDate    DateTime @default(now())
+  status         ExitRequestStatus @default(PENDING)
+  processedById  String?
+  processedBy    User? @relation("ExitProcessor", fields: [processedById], references: [id])
+  processedAt    DateTime?
+}
+
+model ContactMessage {
+  id        String @id @default(uuid())
+  name      String?
+  email     String?
+  phone     String?
+  subject   String?
+  message   String?
+  type      ContactMessageType
+  createdAt DateTime @default(now())
+  userId    String?
+  user      User? @relation(fields: [userId], references: [id])
+}
