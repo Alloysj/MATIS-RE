@@ -3,6 +3,13 @@ import express from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createCrudRouter } from './crudRouter';
 import supabase from './supabaseClient';
+import usersRouter from './routes/users';
+import matatusRouter from './routes/matatus';
+import financeRouter from './routes/finance';
+import reportsRouter from './routes/reports';
+import adminRouter from './routes/admin';
+import rolesRouter from './routes/roles';
+import staffRouter from './routes/staff';
 
 const prisma = new PrismaClient();
 const app = express();
@@ -10,7 +17,7 @@ app.use(express.json());
 
 // List of models to expose via generic CRUD routes
 const resources = [
-  'role', 'permission', 'rolePermission', 'user',
+  'role', 'permission', 'rolePermission',
   'route', 'vehicle', 'vehicleDriverAssignment',
   'loan', 'loanGuarantor', 'savingsAccount',
   'payment', 'paymentAllocation', 'transaction', 'insurancePolicy',
@@ -22,6 +29,15 @@ resources.forEach((name) => {
   // create URL path: plural by adding 's'
   app.use(`/api/${name}s`, createCrudRouter(prisma, name));
 });
+
+// Custom optimized routers
+app.use('/api/users', usersRouter);
+app.use('/api/matatus', matatusRouter);
+app.use('/api/finance', financeRouter);
+app.use('/api/reports', reportsRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/roles', rolesRouter);
+app.use('/api/staff', staffRouter);
 
 const port = process.env.PORT || 3000;
 
