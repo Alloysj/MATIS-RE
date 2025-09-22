@@ -119,9 +119,10 @@ model Role {
   id          String          @id @default(uuid())
   name        String          @unique
   description String?
-  createdAt   DateTime        @default(now())
+  createdAt   DateTime        @default(now()) @map("created_at")
   users       User[]
   rolePermissions RolePermission[]
+  @@map("roles")
 }
 
 model Permission {
@@ -130,49 +131,51 @@ model Permission {
   description String?
   category    String?
   rolePermissions RolePermission[]
+  @@map("permissions")
 }
 
 model RolePermission {
   role       Role      @relation(fields: [roleId], references: [id])
-  roleId     String
+  roleId     String   @map("role_id")
   permission Permission @relation(fields: [permissionId], references: [id])
-  permissionId String
+  permissionId String @map("permission_id")
 
   @@id([roleId, permissionId])
+  @@map("role_permissions")
 }
 
 model User {
   id                    String   @id @default(uuid())
-  memberNumber          BigInt   @unique
-  firstName             String
-  lastName              String
+  memberNumber          BigInt   @unique @map("member_number")
+  firstName             String   @map("first_name")
+  lastName              String   @map("last_name")
   email                 String   @unique
   phone                 String?
-  passwordHash          String
-  roleId                String?
+  passwordHash          String   @map("password_hash")
+  roleId                String?  @map("role_id")
   role                  Role?    @relation(fields: [roleId], references: [id])
   status                UserStatus @default(PENDING)
-  membershipType        String?
-  profileCategory       String?
-  idNumber              String?
-  dateOfBirth           DateTime?
+  membershipType        String?  @map("membership_type")
+  profileCategory       String?  @map("profile_category")
+  idNumber              String?  @map("id_number")
+  dateOfBirth           DateTime? @map("date_of_birth")
   county                String?
   town                  String?
   address               String?
-  businessName          String?
-  businessType          String?
-  shareCapital          Decimal? @default(0)
-  savingsBalance        Decimal? @default(0)
-  loanBalance           Decimal? @default(0)
-  totalDeposits         Decimal? @default(0)
-  nextOfKin             String?
-  nextOfKinPhone        String?
+  businessName          String?  @map("business_name")
+  businessType          String?  @map("business_type")
+  shareCapital          Decimal? @default(0) @map("share_capital")
+  savingsBalance        Decimal? @default(0) @map("savings_balance")
+  loanBalance           Decimal? @default(0) @map("loan_balance")
+  totalDeposits         Decimal? @default(0) @map("total_deposits")
+  nextOfKin             String?  @map("next_of_kin")
+  nextOfKinPhone        String?  @map("next_of_kin_phone")
   occupation            String?
-  registrationDate      DateTime @default(now())
+  registrationDate      DateTime @default(now()) @map("registration_date")
   lastLogin             DateTime?
-  hasCompletedCapitalPayment Boolean @default(false)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime?
+  hasCompletedCapitalPayment Boolean @default(false) @map("has_completed_capital_payment")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime? @map("updated_at")
   vehicles             Vehicle[] @relation("OwnerVehicles")
   driverAssignments    Vehicle[] @relation("DriverVehicles")
   vehicleDriverAssignments VehicleDriverAssignment[] @relation("AssignmentsUser")
@@ -190,7 +193,7 @@ model User {
   capitalPayments      CapitalPayment[]
   exitRequests         ExitRequest[]
   exitProcessed        ExitRequest[] @relation("ExitProcessor")
-  contactMessages      ContactMessage[]
+  @@map("users")
 }
 
 // ---------------- Fleet & Route Management ----------------
@@ -439,6 +442,4 @@ model ContactMessage {
   message   String?
   type      ContactMessageType
   createdAt DateTime @default(now())
-  userId    String?
-  user      User? @relation(fields: [userId], references: [id])
 }

@@ -56,7 +56,7 @@ router.get('/userDetails', authenticate, async (req: AuthRequest, res) => {
 router.post('/support/tickets', authenticate, async (req: AuthRequest, res) => {
   const { subject, message } = req.body;
   const ticket = await prisma.contactMessage.create({
-    data: { userId: req.user!.id, subject, message, type: 'TECHNICAL' }
+    data: { subject, message, type: 'TECHNICAL' }
   });
   res.status(201).json(ticket);
 });
