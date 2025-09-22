@@ -34,6 +34,8 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
         phone: user.phone || '',
         hasCompletedCapitalPayment: !!user.hasCompletedCapitalPayment
       });
+      // Route to dashboard; Router decides based on role/permissions
+      onNavigate('dashboard');
     } catch (e: any) {
       setError('Invalid email or password. Please try again.');
     }

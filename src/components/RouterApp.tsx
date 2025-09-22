@@ -73,11 +73,11 @@ function RouterApp() {
     }
   }, [user]);
 
-  const handleLogin = (userData: { name: string; role: string; phone: string }) => {
+  const handleLogin = (userData: { name: string; role: string; phone: string; hasCompletedCapitalPayment?: boolean }) => {
     const newUser: User = { 
       ...userData, 
       role: userData.role as User['role'],
-      hasCompletedCapitalPayment: false 
+      hasCompletedCapitalPayment: userData.hasCompletedCapitalPayment ?? false 
     };
     setUser(newUser);
   };

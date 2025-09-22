@@ -272,7 +272,8 @@ export class RouteProtectionService {
       case 'Treasurer':
         return 'staff/dashboard';
       default:
-        return 'home';
+        // Default unknown roles to Vehicle Owner dashboard
+        return 'users/home';
     }
   }
 

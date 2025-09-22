@@ -175,9 +175,42 @@ router.post('/:id/resetStatus', async (req, res) => {
 });
 
 router.post('/:id/assignDriver', async (req, res) => {
-  const { driverId } = req.body;
-  const assignment = await prisma.vehicleDriverAssignment.create({ data: { vehicleId: req.params.id, driverId } });
-  res.status(201).json(assignment);
+  const { driverId } = req.body as { driverId?: string };
+  const vehicleId = req.params.id;
+
+  if (!driverId) {
+    return res.status(400).json({ message: 'driverId is required' });
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      // Validate driver exists
+      const driver = await tx.user.findUnique({ where: { id: driverId } });
+      if (!driver) {
+        throw new Error('Driver not found');
+      }
+
+      // Update vehicle current driver
+      const vehicle = await tx.vehicle.update({
+        where: { id: vehicleId },
+        data: { driverId }
+      });
+
+      // Create a new assignment record
+      const assignment = await tx.vehicleDriverAssignment.create({
+        data: { vehicleId, driverId }
+      });
+
+      return { vehicle, assignment };
+    });
+
+    res.status(201).json(result);
+  } catch (err: any) {
+    if (String(err?.message).includes('Driver not found')) {
+      return res.status(404).json({ message: 'Driver not found' });
+    }
+    res.status(500).json({ message: 'Failed to assign driver', error: err?.message || String(err) });
+  }
 });
 
 export default router;
