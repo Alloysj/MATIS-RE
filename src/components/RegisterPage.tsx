@@ -20,6 +20,7 @@ import {
   Bus
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { signup } from '../services/auth';
 
 interface RegisterPageProps {
   onNavigate: (page: string) => void;
@@ -69,13 +70,20 @@ export function RegisterPage({ onNavigate }: RegisterPageProps) {
     }
     
     setIsLoading(true);
-    
-    // Simulate registration
-    setTimeout(() => {
-      setIsLoading(false);
-      alert('Registration successful! Please check your email for verification. (Demo)');
+    try {
+      await signup({
+        email: formData.email,
+        password: formData.password,
+        firstName: formData.firstName,
+        lastName: formData.lastName
+      });
+      alert('Registration successful! You can now log in.');
       onNavigate('login');
-    }, 2000);
+    } catch (err: any) {
+      alert('Registration failed. Ensure email is unique and fields are valid.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {

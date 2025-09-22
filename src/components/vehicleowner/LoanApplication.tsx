@@ -110,9 +110,12 @@ export function LoanApplication({ user, onNavigate, onLogout }: LoanApplicationP
   };
 
   const selectedVehicleData = vehicles.find(v => v.id === selectedVehicle);
-  const maxLoanAmount = loanType === 'emergency' 
-    ? selectedVehicleData?.maxEmergency || 0
-    : selectedVehicleData?.eligibleLoan || 0;
+  const ownSavings = selectedVehicleData?.savings || 0;
+  const maxLoanAmount = loanType === 'emergency'
+    ? ownSavings + 30000
+    : ownSavings;
+  const requestedAmount = Number(loanAmount) || 0;
+  const emergencyExcess = Math.max(0, requestedAmount - ownSavings);
 
   return (
     <VehicleOwnerLayout
@@ -177,8 +180,8 @@ export function LoanApplication({ user, onNavigate, onLogout }: LoanApplicationP
                       <SelectValue placeholder="Select loan type" />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-white/30 text-white">
-                      <SelectItem value="normal">Normal Loan (3x Savings)</SelectItem>
-                      <SelectItem value="emergency">Emergency Loan (Same Day)</SelectItem>
+                      <SelectItem value="normal">Normal Loan (up to your savings)</SelectItem>
+                      <SelectItem value="emergency">Emergency Loan (savings + KES 30,000)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -212,10 +215,10 @@ export function LoanApplication({ user, onNavigate, onLogout }: LoanApplicationP
                   />
                 </div>
 
-                {/* Guarantors (only for normal loans) */}
-                {loanType === 'normal' && (
+                {/* Guarantors (only for emergency loans when exceeding own savings) */}
+                {loanType === 'emergency' && requestedAmount > ownSavings && (
                   <div className="space-y-2">
-                    <Label>Select Guarantors (Choose 2)</Label>
+                    <Label>Select Guarantors (names only)</Label>
                     <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
                       {guarantorOptions.map((guarantor) => (
                         <div
@@ -232,18 +235,12 @@ export function LoanApplication({ user, onNavigate, onLogout }: LoanApplicationP
                               <p className="text-white font-medium">{guarantor.name}</p>
                               <p className="text-white/60 text-sm">{guarantor.phone}</p>
                             </div>
-                            <div className="text-right">
-                              <p className="text-[var(--neon-turquoise)] text-sm">
-                                KES {guarantor.savings.toLocaleString()}
-                              </p>
-                              <p className="text-white/60 text-xs">Savings</p>
-                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
                     <p className="text-xs text-white/60">
-                      Selected: {selectedGuarantors.length}/2
+                      Required guarantee (combined): KES {emergencyExcess.toLocaleString()} (backend will verify)
                     </p>
                   </div>
                 )}
@@ -260,17 +257,19 @@ export function LoanApplication({ user, onNavigate, onLogout }: LoanApplicationP
                   <Button
                     onClick={handleLoanApplication}
                     disabled={
-                      !selectedVehicle || 
-                      !loanType || 
-                      !loanAmount || 
+                      !selectedVehicle ||
+                      !loanType ||
+                      !loanAmount ||
                       !purpose ||
-                      (loanType === 'normal' && selectedGuarantors.length !== 2)
+                      requestedAmount <= 0 ||
+                      requestedAmount > maxLoanAmount ||
+                      (loanType === 'emergency' && requestedAmount > ownSavings && selectedGuarantors.length === 0)
                     }
-                    className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-slate-900"
-                  >
-                    Submit Application
-                  </Button>
-                </div>
+                  className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-slate-900"
+                >
+                  Submit Application
+                </Button>
+              </div>
               </div>
             </DialogContent>
           </Dialog>
@@ -341,11 +340,11 @@ export function LoanApplication({ user, onNavigate, onLogout }: LoanApplicationP
               <div className="p-4 bg-gradient-to-r from-[var(--neon-turquoise)]/10 to-[var(--electric-blue)]/10 rounded-lg border border-[var(--neon-turquoise)]/30">
                 <h3 className="text-lg font-semibold text-[var(--neon-turquoise)] mb-2">Normal Loan</h3>
                 <ul className="text-white/70 text-sm space-y-1">
-                  <li>• Up to 3x your savings balance</li>
-                  <li>• Requires 2 guarantors</li>
-                  <li>• 12% annual interest rate</li>
+                  <li>• Maximum amount: up to your current savings</li>
+                  <li>• Guarantors: not required</li>
+                  <li>• Interest: 0% (no interest)</li>
                   <li>• Repayment period: 6-24 months</li>
-                  <li>• Processing time: 3-5 business days</li>
+                  <li>• Processing time: 1�2 days</li>
                 </ul>
               </div>
 
@@ -356,11 +355,11 @@ export function LoanApplication({ user, onNavigate, onLogout }: LoanApplicationP
                   Emergency Loan
                 </h3>
                 <ul className="text-white/70 text-sm space-y-1">
-                  <li>• Up to KES 15,000 (varies by savings)</li>
-                  <li>• No guarantors required</li>
-                  <li>• 15% annual interest rate</li>
-                  <li>• Repayment period: 1-6 months</li>
-                  <li>• Same-day processing</li>
+                  <li>• Maximum amount: savings + KES 30,000</li>
+                  <li>• Guarantors: required only for the excess over your savings</li>
+                  <li>• Interest: 0% (no interest)</li>
+                  <li>• Processing time: 6�12 hours</li>
+                  <li>• </li>
                 </ul>
               </div>
 
@@ -440,3 +439,5 @@ export function LoanApplication({ user, onNavigate, onLogout }: LoanApplicationP
     </VehicleOwnerLayout>
   );
 }
+
+

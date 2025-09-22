@@ -16,6 +16,7 @@ enum UserStatus {
   PENDING
   SUSPENDED
   INACTIVE
+  @@map("user_status")
 }
 
 enum VehicleStatus {
@@ -23,28 +24,33 @@ enum VehicleStatus {
   INACTIVE
   MAINTENANCE
   DECOMMISSIONED
+  @@map("vehicle_status")
 }
 
 enum InsuranceStatus {
   ACTIVE
   EXPIRED
   PENDING
+  @@map("insurance_status")
 }
 
 enum RegistrationStatus {
   VALID
   EXPIRED
   PENDING
+  @@map("registration_status")
 }
 
 enum RouteStatus {
   ACTIVE
   INACTIVE
+  @@map("route_status")
 }
 
 enum LoanType {
   NORMAL
   EMERGENCY
+  @@map("loan_type")
 }
 
 enum LoanStatus {
@@ -54,6 +60,7 @@ enum LoanStatus {
   DISBURSED
   REPAID
   DEFAULTED
+  @@map("loan_status")
 }
 
 enum TransactionType {
@@ -63,12 +70,14 @@ enum TransactionType {
   OPERATIONS_FEE
   SALARY
   EXPENSE
+  @@map("transaction_type")
 }
 
 enum PaymentStatus {
   PENDING
   COMPLETED
   FAILED
+  @@map("payment_status")
 }
 
 enum PaymentCategory {
@@ -76,12 +85,14 @@ enum PaymentCategory {
   LOAN_REPAYMENT
   INSURANCE
   OPERATIONS
+  @@map("payment_category")
 }
 
 enum SalaryStatus {
   PENDING
   PAID
   CANCELLED
+  @@map("salary_status")
 }
 
 enum SalaryAdvanceStatus {
@@ -89,6 +100,7 @@ enum SalaryAdvanceStatus {
   APPROVED
   REJECTED
   DISBURSED
+  @@map("salary_advance_status")
 }
 
 enum ExpenseStatus {
@@ -96,6 +108,7 @@ enum ExpenseStatus {
   APPROVED
   REJECTED
   PAID
+  @@map("expense_status")
 }
 
 enum ContactMessageType {
@@ -104,6 +117,7 @@ enum ContactMessageType {
   LOANS
   TECHNICAL
   PARTNERSHIP
+  @@map("contact_message_type")
 }
 
 enum ExitRequestStatus {
@@ -111,6 +125,7 @@ enum ExitRequestStatus {
   APPROVED
   REJECTED
   PROCESSED
+  @@map("exit_request_status")
 }
 
 // ---------------- Core Identity & Access ----------------
@@ -119,9 +134,10 @@ model Role {
   id          String          @id @default(uuid())
   name        String          @unique
   description String?
-  createdAt   DateTime        @default(now())
+  createdAt   DateTime        @default(now()) @map("created_at")
   users       User[]
   rolePermissions RolePermission[]
+  @@map("roles")
 }
 
 model Permission {
@@ -130,49 +146,51 @@ model Permission {
   description String?
   category    String?
   rolePermissions RolePermission[]
+  @@map("permissions")
 }
 
 model RolePermission {
   role       Role      @relation(fields: [roleId], references: [id])
-  roleId     String
+  roleId     String   @map("role_id")
   permission Permission @relation(fields: [permissionId], references: [id])
-  permissionId String
+  permissionId String @map("permission_id")
 
   @@id([roleId, permissionId])
+  @@map("role_permissions")
 }
 
 model User {
   id                    String   @id @default(uuid())
-  memberNumber          BigInt   @unique
-  firstName             String
-  lastName              String
+  memberNumber          BigInt   @unique @default(dbgenerated("nextval('users_member_number_seq'::regclass)")) @map("member_number")
+  firstName             String   @map("first_name")
+  lastName              String   @map("last_name")
   email                 String   @unique
   phone                 String?
-  passwordHash          String
-  roleId                String?
+  passwordHash          String   @map("password_hash")
+  roleId                String?  @map("role_id")
   role                  Role?    @relation(fields: [roleId], references: [id])
   status                UserStatus @default(PENDING)
-  membershipType        String?
-  profileCategory       String?
-  idNumber              String?
-  dateOfBirth           DateTime?
+  membershipType        String?  @map("membership_type")
+  profileCategory       String?  @map("profile_category")
+  idNumber              String?  @map("id_number")
+  dateOfBirth           DateTime? @map("date_of_birth")
   county                String?
   town                  String?
   address               String?
-  businessName          String?
-  businessType          String?
-  shareCapital          Decimal? @default(0)
-  savingsBalance        Decimal? @default(0)
-  loanBalance           Decimal? @default(0)
-  totalDeposits         Decimal? @default(0)
-  nextOfKin             String?
-  nextOfKinPhone        String?
+  businessName          String?  @map("business_name")
+  businessType          String?  @map("business_type")
+  shareCapital          Decimal? @default(0) @map("share_capital")
+  savingsBalance        Decimal? @default(0) @map("savings_balance")
+  loanBalance           Decimal? @default(0) @map("loan_balance")
+  totalDeposits         Decimal? @default(0) @map("total_deposits")
+  nextOfKin             String?  @map("next_of_kin")
+  nextOfKinPhone        String?  @map("next_of_kin_phone")
   occupation            String?
-  registrationDate      DateTime @default(now())
-  lastLogin             DateTime?
-  hasCompletedCapitalPayment Boolean @default(false)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime?
+  registrationDate      DateTime @default(now()) @map("registration_date")
+  lastLogin             DateTime? @map("last_login")
+  hasCompletedCapitalPayment Boolean @default(false) @map("has_completed_capital_payment")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime? @map("updated_at")
   vehicles             Vehicle[] @relation("OwnerVehicles")
   driverAssignments    Vehicle[] @relation("DriverVehicles")
   vehicleDriverAssignments VehicleDriverAssignment[] @relation("AssignmentsUser")
@@ -190,7 +208,7 @@ model User {
   capitalPayments      CapitalPayment[]
   exitRequests         ExitRequest[]
   exitProcessed        ExitRequest[] @relation("ExitProcessor")
-  contactMessages      ContactMessage[]
+  @@map("users")
 }
 
 // ---------------- Fleet & Route Management ----------------
@@ -198,42 +216,43 @@ model User {
 model Route {
   id              String        @id @default(uuid())
   name            String        @unique
-  startPoint      String
-  endPoint        String
-  distanceKm      Decimal?
-  estimatedTime   String?
-  vehiclesAssigned Int?         @default(0)
+  startPoint      String        @map("start_point")
+  endPoint        String        @map("end_point")
+  distanceKm      Decimal?      @map("distance_km")
+  estimatedTime   Unsupported("interval")? @map("estimated_time")
+  vehiclesAssigned Int?         @default(0) @map("vehicles_assigned")
   fare            Decimal?
   status          RouteStatus   @default(ACTIVE)
-  dateCreated     DateTime      @default(now())
+  dateCreated     DateTime      @default(now()) @map("date_created")
   vehicles        Vehicle[]
   payments        Payment[]
+  @@map("routes")
 }
 
 model Vehicle {
   id                  String   @id @default(uuid())
-  ownerId             String
+  ownerId             String   @map("owner_id")
   owner               User     @relation("OwnerVehicles", fields: [ownerId], references: [id])
-  plateNumber         String   @unique
+  plateNumber         String   @unique @map("plate_number")
   model               String?
-  vehicleType         String?
+  vehicleType         String?  @map("vehicle_type")
   capacity            Int?
-  chassisNumber       String?
-  engineNumber        String?
-  yearOfManufacture   Int?
-  routeId             String?
+  chassisNumber       String?  @map("chassis_number")
+  engineNumber        String?  @map("engine_number")
+  yearOfManufacture   Int?     @map("year_of_manufacture")
+  routeId             String?  @map("route_id")
   route               Route?   @relation(fields: [routeId], references: [id])
   status              VehicleStatus @default(ACTIVE)
-  driverId            String?
+  driverId            String?  @map("driver_id")
   driver              User?    @relation("DriverVehicles", fields: [driverId], references: [id])
-  insuranceStatus     InsuranceStatus @default(PENDING)
-  insuranceProvider   String?
-  policyType          String?
+  insuranceStatus     InsuranceStatus @default(PENDING) @map("insurance_status")
+  insuranceProvider   String?  @map("insurance_provider")
+  policyType          String?  @map("policy_type")
   premium             Decimal?
-  insuranceExpiry     DateTime?
-  registrationStatus  RegistrationStatus @default(PENDING)
-  registrationExpiry  DateTime?
-  dateAdded           DateTime @default(now())
+  insuranceExpiry     DateTime? @map("insurance_expiry")
+  registrationStatus  RegistrationStatus @default(PENDING) @map("registration_status")
+  registrationExpiry  DateTime? @map("registration_expiry")
+  dateAdded           DateTime @default(now()) @map("date_added")
 
   driverAssignments   VehicleDriverAssignment[]
   loans               Loan[]
@@ -241,153 +260,161 @@ model Vehicle {
   payments            Payment[]
   transactions        Transaction[]
   insurancePolicies   InsurancePolicy[]
+  @@map("vehicles")
 }
 
 model VehicleDriverAssignment {
   id          String   @id @default(uuid())
-  vehicleId   String
+  vehicleId   String   @map("vehicle_id")
   vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
-  driverId    String
+  driverId    String   @map("driver_id")
   driver      User     @relation("AssignmentsUser", fields: [driverId], references: [id])
-  assignedAt  DateTime @default(now())
-  releasedAt  DateTime?
+  assignedAt  DateTime @default(now()) @map("assigned_at")
+  releasedAt  DateTime? @map("released_at")
+  @@map("vehicle_driver_assignments")
 }
 
 // ---------------- Financials ----------------
 
 model Loan {
   id                    String   @id @default(uuid())
-  applicantId           String
+  applicantId           String   @map("applicant_id")
   applicant             User     @relation("LoanApplicant", fields: [applicantId], references: [id])
-  vehicleId             String?
+  vehicleId             String?  @map("vehicle_id")
   vehicle               Vehicle? @relation(fields: [vehicleId], references: [id])
   type                  LoanType
   amount                Decimal
   purpose               String?
-  savingsAtApplication  Decimal?
-  applicationDate       DateTime @default(now())
+  savingsAtApplication  Decimal? @map("savings_at_application")
+  applicationDate       DateTime @default(now()) @map("application_date")
   status                LoanStatus @default(PENDING)
-  creditScore           Int?
-  monthlyIncome         Decimal?
-  existingLoans         Decimal?
+  creditScore           Int?     @map("credit_score")
+  monthlyIncome         Decimal? @map("monthly_income")
+  existingLoans         Decimal? @map("existing_loans")
   urgency               String?
-  expectedRepaymentDate DateTime?
-  approvedById          String?
+  expectedRepaymentDate DateTime? @map("expected_repayment_date")
+  approvedById          String?   @map("approved_by")
   approvedBy            User?    @relation("LoanApprover", fields: [approvedById], references: [id])
-  approvedAt            DateTime?
+  approvedAt            DateTime? @map("approved_at")
   guarantors            LoanGuarantor[]
-  payments              Payment[]
+  @@map("loans")
 }
 
 model LoanGuarantor {
   id          String @id @default(uuid())
-  loanId      String
+  loanId      String @map("loan_id")
   loan        Loan   @relation(fields: [loanId], references: [id])
-  guarantorId String
+  guarantorId String @map("guarantor_id")
   guarantor   User   @relation(fields: [guarantorId], references: [id])
+  @@map("loan_guarantors")
 }
 
 model SavingsAccount {
   id            String   @id @default(uuid())
-  userId        String
+  userId        String   @map("user_id")
   user          User     @relation(fields: [userId], references: [id])
-  vehicleId     String?
+  vehicleId     String?  @map("vehicle_id")
   vehicle       Vehicle? @relation(fields: [vehicleId], references: [id])
-  accountType   String?
+  accountType   String?  @map("account_type")
   balance       Decimal? @default(0)
-  monthlyTarget Decimal?
-  lastDeposit   DateTime?
-  createdAt     DateTime @default(now())
+  monthlyTarget Decimal? @map("monthly_target")
+  lastDeposit   DateTime? @map("last_deposit")
+  createdAt     DateTime @default(now()) @map("created_at")
   transactions  Transaction[]
+  @@map("savings_accounts")
 }
 
 model Payment {
   id           String   @id @default(uuid())
-  userId       String?
+  userId       String?  @map("user_id")
   user         User?    @relation(fields: [userId], references: [id])
-  vehicleId    String?
+  vehicleId    String?  @map("vehicle_id")
   vehicle      Vehicle? @relation(fields: [vehicleId], references: [id])
-  driverId     String?
+  driverId     String?  @map("driver_id")
   driver       User?    @relation("PaymentDriver", fields: [driverId], references: [id])
-  routeId      String?
+  routeId      String?  @map("route_id")
   route        Route?   @relation(fields: [routeId], references: [id])
-  paymentDate  DateTime @default(now())
-  totalAmount  Decimal
-  mpesaReference String?
+  paymentDate  DateTime @default(now()) @map("payment_date")
+  totalAmount  Decimal  @map("total_amount")
+  mpesaReference String? @map("mpesa_reference")
   status       PaymentStatus @default(PENDING)
   allocations  PaymentAllocation[]
   transactions Transaction[]
-  loan         Loan?   @relation(fields: [loanId], references: [id])
-  loanId       String?
+  @@map("payments")
 }
 
 model PaymentAllocation {
   id         String @id @default(uuid())
-  paymentId  String
+  paymentId  String @map("payment_id")
   payment    Payment @relation(fields: [paymentId], references: [id])
   category   PaymentCategory
   amount     Decimal
+  @@map("payment_allocations")
 }
 
 model Transaction {
   id            String   @id @default(uuid())
-  accountId     String
+  accountId     String   @map("account_id")
   account       SavingsAccount @relation(fields: [accountId], references: [id])
-  vehicleId     String?
+  vehicleId     String? @map("vehicle_id")
   vehicle       Vehicle? @relation(fields: [vehicleId], references: [id])
-  userId        String?
+  userId        String? @map("user_id")
   user          User?    @relation(fields: [userId], references: [id])
-  paymentId     String?
+  paymentId     String? @map("payment_id")
   payment       Payment? @relation(fields: [paymentId], references: [id])
   date          DateTime @default(now())
   type          TransactionType
   amount        Decimal
-  balanceAfter  Decimal?
+  balanceAfter  Decimal? @map("balance_after")
   description   String?
+  @@map("transactions")
 }
 
 model InsurancePolicy {
   id            String @id @default(uuid())
-  vehicleId     String
+  vehicleId     String @map("vehicle_id")
   vehicle       Vehicle @relation(fields: [vehicleId], references: [id])
   provider      String?
-  policyType    String?
-  premiumAmount Decimal?
-  startDate     DateTime?
-  expiryDate    DateTime?
+  policyType    String?  @map("policy_type")
+  premiumAmount Decimal? @map("premium_amount")
+  startDate     DateTime? @map("start_date")
+  expiryDate    DateTime? @map("expiry_date")
   status        InsuranceStatus @default(PENDING)
+  @@map("insurance_policies")
 }
 
 // ---------------- Staff Operations & Expenses ----------------
 
 model StaffSalary {
   id             String @id @default(uuid())
-  staffId        String
+  staffId        String @map("staff_id")
   staff          User   @relation("SalaryStaff", fields: [staffId], references: [id])
-  basicSalary    Decimal
+  basicSalary    Decimal @map("basic_salary")
   allowances     Decimal?
   nhif           Decimal?
   nssf           Decimal?
   paye           Decimal?
-  netSalary      Decimal
-  bankName       String?
-  accountNumber  String?
-  payDate        DateTime?
+  netSalary      Decimal @map("net_salary")
+  bankName       String? @map("bank_name")
+  accountNumber  String? @map("account_number")
+  payDate        DateTime? @map("pay_date")
   status         SalaryStatus @default(PENDING)
-  createdAt      DateTime @default(now())
+  createdAt      DateTime @default(now()) @map("created_at")
+  @@map("staff_salaries")
 }
 
 model SalaryAdvance {
   id             String @id @default(uuid())
-  staffId        String
+  staffId        String @map("staff_id")
   staff          User   @relation("AdvanceStaff", fields: [staffId], references: [id])
   amount         Decimal
   reason         String?
-  applicationDate DateTime @default(now())
+  applicationDate DateTime @default(now()) @map("application_date")
   status         SalaryAdvanceStatus @default(PENDING)
-  approvedById   String?
+  approvedById   String? @map("approved_by")
   approvedBy     User?  @relation("AdvanceApprover", fields: [approvedById], references: [id])
-  approvedAt     DateTime?
+  approvedAt     DateTime? @map("approved_at")
+  @@map("salary_advances")
 }
 
 model Expense {
@@ -398,36 +425,40 @@ model Expense {
   date        DateTime @default(now())
   status      ExpenseStatus @default(PENDING)
   vendor      String?
-  createdById String?
+  createdById String? @map("created_by")
   createdBy   User?  @relation("ExpenseCreator", fields: [createdById], references: [id])
+  @@map("expenses")
 }
 
 // ---------------- Membership & Communication ----------------
 
 model CapitalPayment {
-  id              String @id @default(uuid())
-  userId          String
-  user            User   @relation(fields: [userId], references: [id])
-  amount          Decimal
-  phoneNumber     String?
-  mpesaReference  String?
-  paymentDate     DateTime @default(now())
-  status          PaymentStatus @default(PENDING)
+  id             String  @id @default(uuid())
+  userId         String  @map("user_id")
+  user           User    @relation(fields: [userId], references: [id])
+  amount         Decimal
+  phoneNumber    String? @map("phone_number")
+  mpesaReference String? @map("mpesa_reference")
+  paymentDate    DateTime @default(now()) @map("payment_date")
+  status         PaymentStatus @default(PENDING)
+
+  @@map("capital_payments")
 }
 
 model ExitRequest {
   id             String @id @default(uuid())
-  userId         String
+  userId         String @map("user_id")
   user           User   @relation(fields: [userId], references: [id])
   email          String
   reason         String?
-  additionalComments String?
-  netAmount      Decimal?
-  requestDate    DateTime @default(now())
+  additionalComments String? @map("additional_comments")
+  netAmount      Decimal? @map("net_amount")
+  requestDate    DateTime @default(now()) @map("request_date")
   status         ExitRequestStatus @default(PENDING)
-  processedById  String?
+  processedById  String? @map("processed_by")
   processedBy    User? @relation("ExitProcessor", fields: [processedById], references: [id])
-  processedAt    DateTime?
+  processedAt    DateTime? @map("processed_at")
+  @@map("exit_requests")
 }
 
 model ContactMessage {
@@ -438,7 +469,6 @@ model ContactMessage {
   subject   String?
   message   String?
   type      ContactMessageType
-  createdAt DateTime @default(now())
-  userId    String?
-  user      User? @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("contact_messages")
 }
