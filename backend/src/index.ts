@@ -13,7 +13,30 @@ import staffRouter from './routes/staff';
 
 const prisma = new PrismaClient();
 const app = express();
+// Basic CORS handling (no extra deps needed)
+const defaultOrigins = ['http://localhost:3000', 'http://localhost:5173'];
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+const origins = allowedOrigins.length ? allowedOrigins : defaultOrigins;
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin as string | undefined;
+  if (origin && origins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+// Serialize BigInt values safely in all JSON responses
+app.set('json replacer', (_key: string, value: any) => (typeof value === 'bigint' ? value.toString() : value));
 
 // List of models to expose via generic CRUD routes
 const resources = [

@@ -17,6 +17,20 @@ router.get('/drivers', async (_req, res) => {
   res.json(drivers);
 });
 
+// Drivers by occupation = "Driver" (case-insensitive)
+router.get('/availableDrivers', async (_req, res) => {
+  const users = await prisma.user.findMany({
+    where: { occupation: { equals: 'Driver', mode: 'insensitive' } },
+    select: { id: true, firstName: true, lastName: true, phone: true }
+  });
+  const result = users.map((u) => ({
+    id: u.id,
+    name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
+    phone: u.phone || '',
+  }));
+  res.json(result);
+});
+
 router.get('/profile', authenticate, async (req: AuthRequest, res) => {
   const owner = await prisma.user.findUnique({ where: { id: req.user!.id } });
   res.json(owner);
@@ -31,6 +45,57 @@ router.get('/dashboard-info', authenticate, async (req: AuthRequest, res) => {
   const owner = await prisma.user.findUnique({ where: { id: req.user!.id } });
   const vehicles = await prisma.vehicle.findMany({ where: { ownerId: req.user!.id } });
   res.json({ owner, vehicles });
+});
+
+// Aggregated vehicle cards data for dashboard
+router.get('/dashboard-cards', authenticate, async (req: AuthRequest, res) => {
+  const vehicles = await prisma.vehicle.findMany({
+    where: { ownerId: req.user!.id },
+    select: {
+      id: true,
+      plateNumber: true,
+      model: true,
+      yearOfManufacture: true,
+      insuranceStatus: true,
+      route: { select: { name: true } },
+      driver: { select: { firstName: true, lastName: true } }
+    }
+  });
+
+  const results = await Promise.all(
+    vehicles.map(async (v) => {
+      const savingsAgg = await prisma.savingsAccount.aggregate({
+        _sum: { balance: true },
+        where: { vehicleId: v.id }
+      });
+      const loanAgg = await prisma.loan.aggregate({
+        _sum: { amount: true },
+        where: { vehicleId: v.id, status: { not: 'REPAID' } }
+      });
+      const latestPayment = await prisma.payment.findFirst({
+        where: { vehicleId: v.id },
+        orderBy: { paymentDate: 'desc' },
+        select: { paymentDate: true, totalAmount: true }
+      });
+
+      const driverName = [v.driver?.firstName, v.driver?.lastName].filter(Boolean).join(' ').trim();
+      return {
+        id: v.id,
+        plate: v.plateNumber,
+        route: v.route?.name || '',
+        driver: driverName || '',
+        savings: Number(savingsAgg._sum.balance || 0),
+        loan: Number(loanAgg._sum.amount || 0),
+        insurance: v.insuranceStatus,
+        lastPayment: latestPayment?.paymentDate || null,
+        paymentAmount: latestPayment?.totalAmount ? Number(latestPayment.totalAmount) : 0,
+        model: v.model || '',
+        year: v.yearOfManufacture || null
+      };
+    })
+  );
+
+  res.json(results);
 });
 
 router.get('/userMatatus/:userId', async (req, res) => {
@@ -49,7 +114,17 @@ router.post('/addRoute', async (req, res) => {
 });
 
 router.get('/routes', async (_req, res) => {
-  const routes = await prisma.route.findMany();
+  const routes = await prisma.route.findMany({
+    select: {
+      id: true,
+      name: true,
+      startPoint: true,
+      endPoint: true,
+      distanceKm: true,
+      fare: true,
+      status: true
+    }
+  });
   res.json(routes);
 });
 

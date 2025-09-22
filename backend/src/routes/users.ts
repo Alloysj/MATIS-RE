@@ -24,22 +24,38 @@ router.post('/check-email', async (req, res) => {
 });
 
 router.post('/signup', async (req, res) => {
-  const { email, password, firstName, lastName } = req.body;
+  const { email, password, firstName, lastName, memberNumber } = req.body;
   const hash = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
     data: {
       email,
       firstName,
       lastName,
-      passwordHash: hash,
-      memberNumber: BigInt(Date.now())
+      memberNumber,
+      passwordHash: hash
+    },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      memberNumber: true,
+      status: true,
+      createdAt: true
     }
   });
   res.status(201).json(user);
 });
 
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+  const body = req.body || {};
+  const email = body.email as string | undefined;
+  const password = body.password as string | undefined;
+
+  if (!email || !password) {
+    return res.status(400).json({ message: 'Email and password are required' });
+  }
+
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
     return res.status(401).json({ message: 'Invalid credentials' });
