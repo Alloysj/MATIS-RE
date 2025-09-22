@@ -31,11 +31,11 @@ export function useAuth() {
     }
   }, [user]);
 
-  const login = (userData: { name: string; role: string; phone: string }) => {
+  const login = (userData: { name: string; role: string; phone: string; hasCompletedCapitalPayment?: boolean }) => {
     const newUser: User = { 
       ...userData, 
       role: userData.role as User['role'],
-      hasCompletedCapitalPayment: false 
+      hasCompletedCapitalPayment: userData.hasCompletedCapitalPayment ?? false 
     };
     setUser(newUser);
     return newUser;

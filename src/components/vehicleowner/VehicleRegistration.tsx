@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { VehicleOwnerLayout } from './VehicleOwnerLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -16,6 +16,9 @@ import {
   Calendar,
   MapPin
 } from 'lucide-react';
+import { API_BASE, authHeaders } from '../../services/api';
+import { useEffect } from 'react';
+import { getRoutes, RouteItem } from '../../services/matatus';
 
 interface VehicleRegistrationProps {
   user: { name: string; role: string; phone: string } | null;
@@ -25,18 +28,37 @@ interface VehicleRegistrationProps {
 
 export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegistrationProps) {
   const [formData, setFormData] = useState({
-    numberPlate: '',
+    plateNumber: '',
+    model: '',
     vehicleType: '',
     capacity: '',
     chassisNumber: '',
     engineNumber: '',
     yearOfManufacture: '',
-    route: '',
+    routeId: '',
     logbookFile: null as File | null
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [routes, setRoutes] = useState<RouteItem[]>([]);
+  const [routesLoading, setRoutesLoading] = useState(false);
+
+  useEffect(() => {
+    const loadRoutes = async () => {
+      try {
+        setRoutesLoading(true);
+        const data = await getRoutes();
+        setRoutes(data);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to load routes', e);
+      } finally {
+        setRoutesLoading(false);
+      }
+    };
+    loadRoutes();
+  }, []);
 
   const vehicleTypes = [
     'Toyota Hiace',
@@ -44,19 +66,6 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
     'Isuzu NPR',
     'Mitsubishi Rosa',
     'Ford Transit',
-    'Other'
-  ];
-
-  const routes = [
-    'CBD-Kikuyu',
-    'Westlands-Kangemi',
-    'Thika Road-CBD',
-    'Ngong Road-CBD',
-    'Eastleigh-CBD',
-    'Kasarani-CBD',
-    'Embakasi-CBD',
-    'Karen-CBD',
-    'Kawangware-CBD',
     'Other'
   ];
 
@@ -80,10 +89,14 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.numberPlate.trim()) {
-      newErrors.numberPlate = 'Number plate is required';
-    } else if (!/^K[A-Z]{2}\s?\d{3}[A-Z]$/.test(formData.numberPlate.replace(/\s/g, ''))) {
-      newErrors.numberPlate = 'Invalid Kenyan number plate format (e.g., KCA 123A)';
+    if (!formData.plateNumber.trim()) {
+      newErrors.plateNumber = 'Plate number is required';
+    } else if (!/^K[A-Z]{2}\s?\d{3}[A-Z]$/.test(formData.plateNumber.replace(/\s/g, ''))) {
+      newErrors.plateNumber = 'Invalid Kenyan plate format (e.g., KCA 123A)';
+    }
+
+    if (!formData.model.trim()) {
+      newErrors.model = 'Model is required';
     }
 
     if (!formData.vehicleType) {
@@ -114,13 +127,12 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
       }
     }
 
-    if (!formData.route) {
-      newErrors.route = 'Route is required';
+    // routeId required for registration now
+    if (!formData.routeId) {
+      newErrors.routeId = 'Route is required';
     }
 
-    if (!formData.logbookFile) {
-      newErrors.logbookFile = 'Logbook copy is required';
-    }
+    // logbookFile upload not yet integrated with backend
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -128,20 +140,37 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-
+    if (!validateForm()) return;
     setIsSubmitting(true);
-
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    console.log('Vehicle registration data:', formData);
-    
-    setIsSubmitting(false);
-    setShowSuccess(true);
+    try {
+      const body = {
+        plateNumber: formData.plateNumber.toUpperCase(),
+        model: formData.model,
+        vehicleType: formData.vehicleType,
+        capacity: Number(formData.capacity),
+        chassisNumber: formData.chassisNumber,
+        engineNumber: formData.engineNumber,
+        yearOfManufacture: Number(formData.yearOfManufacture),
+        // routeId: formData.routeId || undefined
+      } as any;
+      if (formData.routeId) body.routeId = formData.routeId;
+      const res = await fetch(`${API_BASE}/api/matatus/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t || `Failed (${res.status})`);
+      }
+      setShowSuccess(true);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err);
+      setErrors(prev => ({ ...prev, submit: 'Failed to register vehicle. Please try again.' }));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSuccessClose = () => {
@@ -244,15 +273,29 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Number Plate */}
                 <div className="space-y-2">
-                  <Label className="text-white/90">Number Plate *</Label>
+                  <Label className="text-white/90">Plate Number *</Label>
                   <Input
-                    value={formData.numberPlate}
-                    onChange={(e) => handleInputChange('numberPlate', e.target.value.toUpperCase())}
+                    value={formData.plateNumber}
+                    onChange={(e) => handleInputChange('plateNumber', e.target.value.toUpperCase())}
                     placeholder="KCA 123A"
                     className="bg-white/10 border-white/30 text-white placeholder:text-white/50 focus:border-[var(--neon-turquoise)] focus:ring-[var(--neon-turquoise)]/20"
                   />
-                  {errors.numberPlate && (
-                    <p className="text-red-400 text-sm">{errors.numberPlate}</p>
+                  {errors.plateNumber && (
+                    <p className="text-red-400 text-sm">{errors.plateNumber}</p>
+                  )}
+                </div>
+
+                {/* Model */}
+                <div className="space-y-2">
+                  <Label className="text-white/90">Model *</Label>
+                  <Input
+                    value={formData.model}
+                    onChange={(e) => handleInputChange('model', e.target.value)}
+                    placeholder="Toyota Hiace"
+                    className="bg-white/10 border-white/30 text-white placeholder:text-white/50 focus:border-[var(--neon-turquoise)] focus:ring-[var(--neon-turquoise)]/20"
+                  />
+                  {errors.model && (
+                    <p className="text-red-400 text-sm">{errors.model}</p>
                   )}
                 </div>
 
@@ -341,26 +384,29 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
                   <MapPin className="w-4 h-4 mr-1" />
                   Operating Route *
                 </Label>
-                <Select value={formData.route} onValueChange={(value) => handleInputChange('route', value)}>
+                <Select value={formData.routeId} onValueChange={(value) => handleInputChange('routeId', value)}>
                   <SelectTrigger className="bg-white/10 border-white/30 text-white">
-                    <SelectValue placeholder="Select operating route" />
+                    <SelectValue placeholder={routesLoading ? 'Loading routes...' : 'Select operating route'} />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-white/30 text-white">
-                    {routes.map(route => (
-                      <SelectItem key={route} value={route}>{route}</SelectItem>
-                    ))}
+                    {routes.map((r) => {
+                      const label = r.startPoint && r.endPoint ? `${r.name} (${r.startPoint} - ${r.endPoint})` : r.name;
+                      return (
+                        <SelectItem key={r.id} value={r.id}>{label}</SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
-                {errors.route && (
-                  <p className="text-red-400 text-sm">{errors.route}</p>
+                {errors.routeId && (
+                  <p className="text-red-400 text-sm">{errors.routeId}</p>
                 )}
               </div>
 
-              {/* Logbook Upload */}
+              {/* Logbook Upload (not required currently) */}
               <div className="space-y-2">
                 <Label className="text-white/90 flex items-center">
                   <FileText className="w-4 h-4 mr-1" />
-                  Logbook Copy *
+                  Logbook Copy (optional)
                 </Label>
                 <div className="relative">
                   <input

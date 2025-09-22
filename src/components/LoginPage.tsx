@@ -5,6 +5,7 @@ import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
 import { Eye, EyeOff, ArrowLeft, User, Lock } from 'lucide-react';
+import { login, getUserDetails } from '../services/auth';
 
 interface LoginPageProps {
   onNavigate: (page: string) => void;
@@ -13,35 +14,28 @@ interface LoginPageProps {
 
 export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
   const [showPassword, setShowPassword] = useState(false);
-  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  // Hardcoded credentials for prototyping
-  const users = [
-    { phone: '0712345678', password: 'admin123', name: 'John Kimani', role: 'Admin' },
-    { phone: '0798765432', password: 'staff123', name: 'Mary Wanjiku', role: 'Staff' },
-    { phone: '0723456789', password: 'owner123', name: 'Peter Otieno', role: 'Vehicle Owner' },
-    { phone: '0734567890', password: 'owner456', name: 'Grace Nyawira', role: 'Vehicle Owner' },
-  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Find user by phone and password
-    const user = users.find(u => u.phone === phone && u.password === password);
-
-    if (user) {
-      // Successful login
-      onLogin?.(user);
-    } else {
-      setError('Invalid phone number or password. Please try again.');
+    try {
+      await login({ email, password });
+      const user = await getUserDetails();
+      const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+      onLogin?.({
+        name: fullName || user.email,
+        role: user?.role?.name || 'Vehicle Owner',
+        phone: user.phone || '',
+        hasCompletedCapitalPayment: !!user.hasCompletedCapitalPayment
+      });
+    } catch (e: any) {
+      setError('Invalid email or password. Please try again.');
     }
 
     setIsLoading(false);
@@ -86,13 +80,13 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="phone" className="text-white/90">Phone Number</Label>
+                  <Label htmlFor="email" className="text-white/90">Email</Label>
                   <Input
-                    id="phone"
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="0712345678"
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
                     className="bg-white/10 border-white/30 text-white placeholder:text-white/50 focus:border-[var(--neon-turquoise)] focus:ring-[var(--neon-turquoise)]/20"
                     required
                   />
@@ -164,15 +158,7 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
                 </div>
               </div>
 
-              {/* Demo Credentials */}
-              <div className="mt-8 p-4 bg-white/5 rounded-lg border border-white/10">
-                <p className="text-xs text-white/60 mb-2">Demo Credentials:</p>
-                <div className="text-xs text-white/80 space-y-1">
-                  <div>Vehicle Owner: 0723456789 / owner123</div>
-                  <div>Staff: 0798765432 / staff123</div>
-                  <div>Admin: 0712345678 / admin123</div>
-                </div>
-              </div>
+              {/* Note: Use your email + password to log in. */}
             </CardContent>
           </Card>
         </div>
