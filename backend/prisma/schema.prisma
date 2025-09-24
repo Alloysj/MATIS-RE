@@ -324,6 +324,26 @@ model SavingsAccount {
   @@map("savings_accounts")
 }
 
+model MpesaStkRequest {
+  id                 String   @id @default(uuid())
+  checkoutRequestId  String   @unique @map("checkout_request_id")
+  merchantRequestId  String?  @map("merchant_request_id")
+  phone              String
+  amount             Decimal
+  status             String
+  resultCode         Int?     @map("result_code")
+  resultDesc         String?  @map("result_desc")
+  mpesaReceiptNumber String?  @map("mpesa_receipt_number")
+  userId             String?  @map("user_id")
+  vehicleId          String?  @map("vehicle_id")
+  paymentId          String?  @map("payment_id")
+  metadata           Json?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("mpesa_stk_requests")
+}
+
 model Payment {
   id           String   @id @default(uuid())
   userId       String?  @map("user_id")

@@ -68,3 +68,16 @@ export async function assignDriver(vehicleId: string, driverId: string) {
   }
   return res.json();
 }
+
+export type VehicleSummary = { id: string; plate: string; savings: number };
+
+export async function getUserVehicleSummaries(): Promise<VehicleSummary[]> {
+  const res = await fetch(`${API_BASE}/api/matatus/userVehicles/summary`, {
+    headers: { 'Content-Type': 'application/json', ...authHeaders() }
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to fetch vehicle summaries (${res.status})`);
+  }
+  return res.json();
+}
