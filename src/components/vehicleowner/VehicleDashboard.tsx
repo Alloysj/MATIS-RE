@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { VehicleOwnerLayout } from './VehicleOwnerLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -9,6 +9,8 @@ import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Car, CreditCard, PiggyBank, Shield, User, ChevronDown, ChevronUp, MapPin, Calendar, DollarSign, Plus } from 'lucide-react';
 import { getDashboardCards, getAvailableDrivers, assignDriver, VehicleCard, AvailableDriver } from '../../services/matatus';
+
+import { processPayment, checkPaymentStatus } from '../../services/finance';
 
 interface VehicleDashboardProps {
   user: { name: string; role: string; phone: string } | null;
@@ -26,6 +28,15 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
   const [drivers, setDrivers] = useState<AvailableDriver[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+
+  const [paymentPhone, setPaymentPhone] = useState(user?.phone ?? '');
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentFeedback, setPaymentFeedback] = useState<{ type: 'info' | 'success' | 'error'; message: string } | null>(null);
+  const [checkoutRequestId, setCheckoutRequestId] = useState<string | null>(null);
+  const paymentPollTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const PAYMENT_STATUS_MAX_ATTEMPTS = 12;
+  const PAYMENT_STATUS_INTERVAL_MS = 5000;
 
   useEffect(() => {
     const load = async () => {
@@ -48,9 +59,124 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
     load();
   }, []);
 
+  useEffect(() => {
+    if (selectedVehicleForPayment && user?.phone) {
+      setPaymentPhone((prev) => prev || user.phone);
+    }
+    if (!selectedVehicleForPayment) {
+      clearPaymentPolling();
+      setIsProcessingPayment(false);
+      setCheckoutRequestId(null);
+      setPaymentFeedback(null);
+    }
+  }, [selectedVehicleForPayment, user?.phone]);
+
+  useEffect(() => () => {
+    clearPaymentPolling();
+  }, []);
+
+  const clearPaymentPolling = () => {
+    if (paymentPollTimeout.current) {
+      clearTimeout(paymentPollTimeout.current);
+      paymentPollTimeout.current = null;
+    }
+  };
+
+  const pollPaymentStatus = async (checkoutId: string, attempt = 0): Promise<void> => {
+    try {
+      const status = await checkPaymentStatus(checkoutId);
+      if (status.status === 'pending' && attempt < PAYMENT_STATUS_MAX_ATTEMPTS) {
+        setPaymentFeedback({
+          type: 'info',
+          message: status.message ?? 'Waiting for MPESA confirmation...'
+        });
+        paymentPollTimeout.current = setTimeout(() => {
+          void pollPaymentStatus(checkoutId, attempt + 1);
+        }, PAYMENT_STATUS_INTERVAL_MS);
+        return;
+      }
+
+      if (status.status === 'completed') {
+        const message = status.mpesaReceiptNumber
+          ? 'Payment complete. Receipt: ' + status.mpesaReceiptNumber
+          : 'Payment complete.';
+        setPaymentFeedback({ type: 'success', message });
+        setPaymentAmount('');
+        setSelectedVehicleForPayment(null);
+      } else if (status.status === 'canceled') {
+        setPaymentFeedback({
+          type: 'error',
+          message: status.message ?? 'Payment was canceled.'
+        });
+      } else if (status.status === 'failed') {
+        setPaymentFeedback({
+          type: 'error',
+          message: status.message ?? 'Payment failed. Please try again.'
+        });
+      } else {
+        setPaymentFeedback({
+          type: 'info',
+          message: status.message ?? 'Payment status: ' + status.status
+        });
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err);
+      setPaymentFeedback({ type: 'error', message: 'Unable to confirm payment status. Please try again.' });
+    } finally {
+      clearPaymentPolling();
+      setIsProcessingPayment(false);
+      setCheckoutRequestId(null);
+    }
+  };
+
+  const openPaymentDialog = (vehicleId: string) => {
+    setSelectedVehicleForPayment(vehicleId);
+    setPaymentFeedback(null);
+    setCheckoutRequestId(null);
+    if (user?.phone) {
+      setPaymentPhone(user.phone);
+    }
+  };
+
   const handleRemittance = async (vehicleId: string) => {
-    // Payment integration goes here
-    console.log(`Processing remittance for vehicle ${vehicleId} with amount ${paymentAmount}`);
+    if (isProcessingPayment) return;
+
+    const sanitizedAmount = paymentAmount.replace(/,/g, '').trim();
+    const amountValue = Number.parseFloat(sanitizedAmount);
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      setPaymentFeedback({ type: 'error', message: 'Enter a valid payment amount.' });
+      return;
+    }
+
+    const phone = paymentPhone.trim();
+    if (!phone) {
+      setPaymentFeedback({ type: 'error', message: 'Enter a phone number to receive the STK prompt.' });
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    setPaymentFeedback({ type: 'info', message: 'Sending STK push. Check your phone to complete the payment.' });
+
+    try {
+      const response = await processPayment({ phone, amount: amountValue, vehicleId });
+      setCheckoutRequestId(response.checkoutRequestId);
+      setPaymentFeedback({ type: 'info', message: response.message ?? 'STK push sent. Awaiting confirmation...' });
+      void pollPaymentStatus(response.checkoutRequestId);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(error);
+      const message = error instanceof Error ? error.message : 'Unable to initiate payment.';
+      setPaymentFeedback({ type: 'error', message });
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const closePaymentDialog = () => {
+    clearPaymentPolling();
+    setIsProcessingPayment(false);
+    setCheckoutRequestId(null);
+    setPaymentFeedback(null);
     setSelectedVehicleForPayment(null);
     setPaymentAmount('');
   };
@@ -159,11 +285,11 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
                 </div>
 
                 <div className="flex flex-wrap gap-3">
-                  <Dialog open={selectedVehicleForPayment === vehicle.id} onOpenChange={(open) => !open && setSelectedVehicleForPayment(null)}>
+                  <Dialog open={selectedVehicleForPayment === vehicle.id} onOpenChange={(open) => { if (!open) closePaymentDialog(); }}>
                     <DialogTrigger asChild>
                       <Button
                         variant="outline"
-                        onClick={() => setSelectedVehicleForPayment(vehicle.id)}
+                        onClick={() => openPaymentDialog(vehicle.id)}
                         className="border-[var(--neon-purple)]/30 text-[var(--neon-purple)] hover:bg-[var(--neon-purple)]/10"
                       >
                         <DollarSign className="w-4 h-4 mr-2" />
@@ -173,16 +299,43 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
                     <DialogContent className="bg-slate-900 border-white/20 text-white">
                       <DialogHeader>
                         <DialogTitle>Remit Payment</DialogTitle>
-                        <DialogDescription>Enter the amount to remit for vehicle {vehicle.plate}</DialogDescription>
+                        <DialogDescription>Enter the payment details for vehicle {vehicle.plate}</DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4">
                         <div>
-                          <Label>Amount (KES)</Label>
-                          <Input value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="e.g. 10,000" className="bg-white/10 border-white/30 text-white" />
+                          <Label>Phone Number</Label>
+                          <Input
+                            type="tel"
+                            value={paymentPhone}
+                            onChange={(e) => setPaymentPhone(e.target.value)}
+                            placeholder="e.g. 07XXXXXXXX"
+                            className="bg-white/10 border-white/30 text-white"
+                          />
                         </div>
+                        <div>
+                          <Label>Amount (KES)</Label>
+                          <Input
+                            value={paymentAmount}
+                            onChange={(e) => setPaymentAmount(e.target.value)}
+                            placeholder="e.g. 10,000"
+                            className="bg-white/10 border-white/30 text-white"
+                            inputMode="decimal"
+                          />
+                        </div>
+                        {paymentFeedback && (
+                          <p className={`text-sm ${paymentFeedback.type === 'error' ? 'text-red-400' : paymentFeedback.type === 'success' ? 'text-green-400' : 'text-white/70'}`}>
+                            {paymentFeedback.message}
+                          </p>
+                        )}
                         <div className="flex justify-end space-x-2">
-                          <Button variant="outline" onClick={() => setSelectedVehicleForPayment(null)} className="border-white/30 text-white hover:bg-white/10">Cancel</Button>
-                          <Button onClick={() => handleRemittance(vehicle.id)} className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-white">Submit Payment</Button>
+                          <Button variant="outline" onClick={closePaymentDialog} className="border-white/30 text-white hover:bg-white/10">Cancel</Button>
+                          <Button
+                            onClick={() => handleRemittance(vehicle.id)}
+                            disabled={isProcessingPayment || !paymentAmount.trim() || !paymentPhone.trim()}
+                            className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {isProcessingPayment ? 'Processing...' : 'Submit Payment'}
+                          </Button>
                         </div>
                       </div>
                     </DialogContent>

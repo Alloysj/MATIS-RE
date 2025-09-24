@@ -47,6 +47,30 @@ router.get('/dashboard-info', authenticate, async (req: AuthRequest, res) => {
   res.json({ owner, vehicles });
 });
 
+// Lightweight vehicle summaries for the logged-in owner
+router.get('/userVehicles/summary', authenticate, async (req: AuthRequest, res) => {
+  const vehicles = await prisma.vehicle.findMany({
+    where: { ownerId: req.user!.id },
+    select: { id: true, plateNumber: true }
+  });
+
+  const summaries = await Promise.all(
+    vehicles.map(async (v) => {
+      const savingsAgg = await prisma.savingsAccount.aggregate({
+        _sum: { balance: true },
+        where: { vehicleId: v.id }
+      });
+      return {
+        id: v.id,
+        plate: v.plateNumber,
+        savings: Number(savingsAgg._sum.balance || 0)
+      };
+    })
+  );
+
+  res.json(summaries);
+});
+
 // Aggregated vehicle cards data for dashboard
 router.get('/dashboard-cards', authenticate, async (req: AuthRequest, res) => {
   const vehicles = await prisma.vehicle.findMany({
