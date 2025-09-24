@@ -7,7 +7,7 @@ import {
   CreditCard, 
   PiggyBank, 
   UserPlus, 
-  FileText, 
+  User as UserIcon,
   LogOut,
   Menu,
   X
@@ -17,7 +17,7 @@ import { useState } from 'react';
 interface VehicleOwnerLayoutProps {
   children: ReactNode;
   currentPage: string;
-  user: { name: string; role: string; phone: string } | null;
+  user: { id?: string; name: string; role: string; phone: string } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -37,7 +37,7 @@ export function VehicleOwnerLayout({
     { id: 'users/apply-loan', label: 'Apply Loan', icon: CreditCard },
     { id: 'users/financial-status', label: 'Financials', icon: PiggyBank },
     { id: 'users/addVehicle', label: 'Add Vehicle', icon: UserPlus },
-    { id: 'users/payments', label: 'Payments', icon: FileText },
+    { id: 'users/profile', label: 'Profile', icon: UserIcon },
     { id: 'users/exit', label: 'Exit SACCO', icon: LogOut },
   ];
 

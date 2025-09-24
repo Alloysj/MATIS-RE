@@ -28,7 +28,7 @@ import {
 } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { Alert, AlertDescription } from "../ui/alert";
-import { getUserVehicleSummaries } from "../../services/matatus";
+import { useVehicleOwnerData } from "../../context/VehicleOwnerDataContext";
 import { applyLoan } from "../../services/finance";
 import {
   DollarSign,
@@ -42,7 +42,7 @@ import {
 } from "lucide-react";
 
 interface LoanApplicationProps {
-  user: { name: string; role: string; phone: string } | null;
+  user: { id?: string; name: string; role: string; phone: string } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -82,17 +82,14 @@ export function LoanApplication({
   onNavigate,
   onLogout,
 }: LoanApplicationProps) {
-  const [vehicles, setVehicles] = useState<LoanVehicle[]>([]);
+  const { matatu, loadMatatu } = useVehicleOwnerData();
+  const vehicles = (matatu.data?.vehicleSummaries as LoanVehicle[] | undefined) ?? [];
+  const vehicleLoading = matatu.status === "loading" && !matatu.data;
+  const vehicleError = matatu.error;
+
   useEffect(() => {
-    (async () => {
-      try {
-        const summaries = await getUserVehicleSummaries();
-        setVehicles(summaries);
-      } catch (e) {
-        console.error("Failed to load vehicles for loan application", e);
-      }
-    })();
-  }, []);
+    void loadMatatu();
+  }, [loadMatatu]);
 
   const [selectedVehicle, setSelectedVehicle] = useState("");
   const [loanType, setLoanType] = useState("");
@@ -259,7 +256,14 @@ export function LoanApplication({
                 {/* Vehicle Selection */}
                 <div className="space-y-2">
                   <Label>Select Vehicle</Label>
+                  {vehicleError && (
+                    <p className="text-sm text-red-300">{vehicleError}</p>
+                  )}
+                  {vehicleLoading && (
+                    <p className="text-sm text-white/60">Loading vehicle options…</p>
+                  )}
                   <Select
+                    disabled={vehicleLoading || vehicles.length === 0}
                     value={selectedVehicle}
                     onValueChange={setSelectedVehicle}
                   >
@@ -267,12 +271,7 @@ export function LoanApplication({
                       <SelectValue placeholder="Choose a vehicle" />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-900 border-white/30 text-white">
-                      {vehicles.map(
-                        (vehicle: {
-                          id: any;
-                          plate: any;
-                          savings: { toLocaleString: () => any };
-                        }) => (
+                      {vehicles.map((vehicle) => (
                           <SelectItem key={vehicle.id} value={vehicle.id}>
                             <div>
                               <p>{vehicle.plate}</p>
@@ -285,6 +284,9 @@ export function LoanApplication({
                       )}
                     </SelectContent>
                   </Select>
+                  {!vehicleLoading && vehicles.length === 0 && (
+                    <p className="text-xs text-white/60">No vehicles available. Add a vehicle first.</p>
+                  )}
                 </div>
 
                 {/* Loan Type */}

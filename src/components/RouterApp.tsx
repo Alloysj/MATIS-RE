@@ -13,6 +13,7 @@ import { ContactPage } from './ContactPage';
 import { LoginPage } from './LoginPage';
 import { RegisterPage } from './RegisterPage';
 import { ForgotPasswordPage } from './ForgotPasswordPage';
+import { VehicleOwnerDataProvider } from '../context/VehicleOwnerDataContext';
 
 // Vehicle Owner Pages
 import { ShareholderCapitalPayment } from './vehicleowner/ShareholderCapitalPayment';
@@ -21,8 +22,7 @@ import { VehicleDashboard } from './vehicleowner/VehicleDashboard';
 import { LoanApplication } from './vehicleowner/LoanApplication';
 import { FinancialStatus } from './vehicleowner/FinancialStatus';
 import { VehicleRegistration } from './vehicleowner/VehicleRegistration';
-import { PaymentStatus } from './vehicleowner/PaymentStatus';
-import { PaymentReceipt } from './vehicleowner/PaymentReceipt';
+import { ProfilePage } from './vehicleowner/ProfilePage';
 import { ExitSacco } from './vehicleowner/ExitSacco';
 
 // Admin Pages
@@ -73,7 +73,7 @@ function RouterApp() {
     }
   }, [user]);
 
-  const handleLogin = (userData: { name: string; role: string; phone: string; hasCompletedCapitalPayment?: boolean }) => {
+  const handleLogin = (userData: { id?: string; name: string; role: string; phone: string; hasCompletedCapitalPayment?: boolean }) => {
     const newUser: User = { 
       ...userData, 
       role: userData.role as User['role'],
@@ -94,12 +94,14 @@ function RouterApp() {
 
   return (
     <BrowserRouter>
-      <AppRoutes 
-        user={user} 
-        onLogin={handleLogin} 
-        onLogout={handleLogout}
-        onCapitalPaymentComplete={handleCapitalPaymentComplete}
-      />
+      <VehicleOwnerDataProvider userId={user?.id ?? null}>
+        <AppRoutes 
+          user={user} 
+          onLogin={handleLogin} 
+          onLogout={handleLogout}
+          onCapitalPaymentComplete={handleCapitalPaymentComplete}
+        />
+      </VehicleOwnerDataProvider>
     </BrowserRouter>
   );
 }
@@ -112,7 +114,7 @@ function AppRoutes({
   onCapitalPaymentComplete 
 }: {
   user: User | null;
-  onLogin: (userData: { name: string; role: string; phone: string }) => void;
+  onLogin: (userData: { id?: string; name: string; role: string; phone: string; hasCompletedCapitalPayment?: boolean }) => void;
   onLogout: () => void;
   onCapitalPaymentComplete: () => void;
 }) {
@@ -203,18 +205,10 @@ function AppRoutes({
             } 
           />
           <Route 
-            path="/users/payments" 
+            path="/users/profile" 
             element={
-              <ProtectedRoute user={user} routePath="users/payments" onNavigate={handleNavigate}>
-                <PaymentStatus user={user} onNavigate={handleNavigate} onLogout={onLogout} />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/users/payments/item/:id" 
-            element={
-              <ProtectedRoute user={user} routePath="users/payments" onNavigate={handleNavigate}>
-                <PaymentReceiptRouter user={user} onNavigate={handleNavigate} onLogout={onLogout} />
+              <ProtectedRoute user={user} routePath="users/profile" onNavigate={handleNavigate}>
+                <ProfilePage user={user} onNavigate={handleNavigate} onLogout={onLogout} />
               </ProtectedRoute>
             } 
           />
@@ -386,29 +380,6 @@ function AppRoutes({
         </Routes>
       </main>
     </div>
-  );
-}
-
-// Component to handle payment receipt with URL parameters
-function PaymentReceiptRouter({ 
-  user, 
-  onNavigate, 
-  onLogout 
-}: {
-  user: User | null;
-  onNavigate: (page: string) => void;
-  onLogout: () => void;
-}) {
-  const location = useLocation();
-  const paymentId = location.pathname.split('/').pop() || '';
-
-  return (
-    <PaymentReceipt 
-      paymentId={paymentId} 
-      user={user} 
-      onNavigate={onNavigate} 
-      onLogout={onLogout}
-    />
   );
 }
 

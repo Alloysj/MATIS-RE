@@ -1,6 +1,7 @@
 import { UserDataService } from './userData';
 
 export interface User {
+  id?: string;
   name: string;
   role: 'Vehicle Owner' | 'Admin' | 'Staff' | 'Chairperson' | 'Treasurer';
   phone: string;
@@ -40,6 +41,12 @@ export const routeConfigs: Record<string, RouteConfig> = {
     requiredPermissions: ['view_own_profile'],
     requiresCapitalPayment: true
   },
+  'users/profile': { 
+    path: 'users/profile', 
+    allowedRoles: ['Vehicle Owner'],
+    requiredPermissions: ['view_own_profile'],
+    requiresCapitalPayment: true
+  },
   'users/vehicles': { 
     path: 'users/vehicles', 
     allowedRoles: ['Vehicle Owner'],
@@ -62,12 +69,6 @@ export const routeConfigs: Record<string, RouteConfig> = {
     path: 'users/addVehicle', 
     allowedRoles: ['Vehicle Owner'],
     requiredPermissions: ['manage_own_vehicles'],
-    requiresCapitalPayment: true
-  },
-  'users/payments': { 
-    path: 'users/payments', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['view_own_financials'],
     requiresCapitalPayment: true
   },
   'users/exit': { 
@@ -348,10 +349,10 @@ export class RouteProtectionService {
     // Role-specific navigation
     if (user.role === 'Vehicle Owner') {
       const vehicleOwnerItems = [
+        { label: 'Profile', route: 'users/profile' },
         { label: 'My Vehicles', route: 'users/vehicles' },
         { label: 'Apply for Loan', route: 'users/apply-loan' },
-        { label: 'Financial Status', route: 'users/financial-status' },
-        { label: 'Payments', route: 'users/payments' }
+        { label: 'Financial Status', route: 'users/financial-status' }
       ].filter(item => this.isAuthorized(user, item.route).authorized);
 
       if (vehicleOwnerItems.length > 0) {

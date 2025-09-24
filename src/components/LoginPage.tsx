@@ -9,7 +9,7 @@ import { login, getUserDetails } from '../services/auth';
 
 interface LoginPageProps {
   onNavigate: (page: string) => void;
-  onLogin?: (userData: { name: string; role: string; phone: string }) => void;
+  onLogin?: (userData: { id?: string; name: string; role: string; phone: string; hasCompletedCapitalPayment?: boolean }) => void;
 }
 
 export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
@@ -29,6 +29,7 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
       const user = await getUserDetails();
       const fullName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
       onLogin?.({
+        id: user.id,
         name: fullName || user.email,
         role: user?.role?.name || 'Vehicle Owner',
         phone: user.phone || '',
