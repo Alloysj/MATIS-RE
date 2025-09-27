@@ -21,13 +21,23 @@ import {
   Mail,
   MapPin,
   CreditCard,
-  Car
+  Car,
+  ArrowLeft,
+  MessageCircle,
+  IdCard,
+  Shield,
+  Banknote,
+  PiggyBank,
+  Calculator,
+  Clock,
+  UserPlus
 } from 'lucide-react';
 
 interface UserProfilesProps {
   user: { name: string; role: string; phone: string } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  selectedUserId?: string;
 }
 
 interface ProfileStats {
@@ -40,19 +50,26 @@ interface ProfileStats {
   averageAge: number;
 }
 
-export function UserProfiles({ user, onNavigate, onLogout }: UserProfilesProps) {
+export function UserProfiles({ user, onNavigate, onLogout, selectedUserId }: UserProfilesProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [profileStats, setProfileStats] = useState<ProfileStats[]>([]);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
   useEffect(() => {
     const allUsers = UserDataService.getAllUsers();
     setUsers(allUsers);
     calculateProfileStats(allUsers);
-  }, []);
+    
+    // If selectedUserId is provided, find and set the selected user
+    if (selectedUserId) {
+      const user = UserDataService.getUserById(selectedUserId);
+      setSelectedUser(user || null);
+    }
+  }, [selectedUserId]);
 
   const calculateProfileStats = (userList: User[]) => {
     const categories: User['profileCategory'][] = ['Individual', 'Corporate', 'Cooperative'];
@@ -246,6 +263,284 @@ export function UserProfiles({ user, onNavigate, onLogout }: UserProfilesProps) 
       </CardContent>
     </Card>
   );
+
+  // Show detailed user profile if selectedUserId is provided
+  if (selectedUser) {
+    const handleSendMessage = () => {
+      // In a real application, this would open a messaging interface
+      alert(`Message feature would open for ${selectedUser.name}`);
+    };
+
+    const formatDate = (dateString: string) => {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    };
+
+    const calculateAge = (dateOfBirth: string) => {
+      const today = new Date();
+      const birthDate = new Date(dateOfBirth);
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return age;
+    };
+
+    return (
+      <AdminLayout user={user} currentPage="admin/users/profiles" onNavigate={onNavigate} onLogout={onLogout}>
+        <div className="space-y-6">
+          {/* Header with Back Button */}
+          <div className="flex items-center space-x-4">
+            <Button 
+              variant="outline" 
+              onClick={() => onNavigate('admin/users/profiles')}
+              className="flex items-center space-x-2"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to Profiles</span>
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">User Profile Details</h1>
+              <p className="text-gray-600">Comprehensive member information</p>
+            </div>
+          </div>
+
+          {/* User Profile Header */}
+          <Card className="bg-gradient-to-r from-[var(--neon-turquoise)]/10 to-[var(--neon-purple)]/10 border-l-4 border-l-[var(--neon-turquoise)]">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center space-x-4">
+                  <Avatar className="h-16 w-16 border-2 border-[var(--neon-turquoise)]">
+                    <AvatarFallback className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black font-bold text-lg">
+                      {selectedUser.name.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">{selectedUser.name}</h2>
+                    <div className="flex items-center space-x-3 mt-1">
+                      <Badge className={getStatusColor(selectedUser.status)}>
+                        {selectedUser.status}
+                      </Badge>
+                      <Badge variant="outline">{selectedUser.role}</Badge>
+                      <Badge variant="outline">{selectedUser.profileCategory}</Badge>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">Member #{selectedUser.memberNumber}</p>
+                  </div>
+                </div>
+                <Button 
+                  className="bg-gradient-to-r from-[var(--neon-purple)] to-[var(--neon-turquoise)] hover:opacity-90"
+                  onClick={handleSendMessage}
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  Send Message
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Personal Information */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <IdCard className="h-5 w-5" />
+                  <span>Personal Information</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Full Name</p>
+                    <p className="text-sm text-gray-900">{selectedUser.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">ID Number</p>
+                    <p className="text-sm text-gray-900">{selectedUser.idNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Date of Birth</p>
+                    <p className="text-sm text-gray-900">{formatDate(selectedUser.dateOfBirth)} ({calculateAge(selectedUser.dateOfBirth)} years old)</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Occupation</p>
+                    <p className="text-sm text-gray-900">{selectedUser.occupation}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Address</p>
+                    <p className="text-sm text-gray-900">{selectedUser.address}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Contact Information */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Phone className="h-5 w-5" />
+                  <span>Contact Information</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Phone</p>
+                    <p className="text-sm text-gray-900">{selectedUser.phone}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Email</p>
+                    <p className="text-sm text-gray-900">{selectedUser.email}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Next of Kin</p>
+                    <p className="text-sm text-gray-900">{selectedUser.nextOfKin}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Next of Kin Phone</p>
+                    <p className="text-sm text-gray-900">{selectedUser.nextOfKinPhone}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* System Information */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Shield className="h-5 w-5" />
+                  <span>System Information</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Registration Date</p>
+                    <p className="text-sm text-gray-900">{formatDate(selectedUser.registrationDate)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Last Login</p>
+                    <p className="text-sm text-gray-900">{selectedUser.lastLogin === 'Never' ? 'Never' : formatDate(selectedUser.lastLogin)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Role</p>
+                    <p className="text-sm text-gray-900">{selectedUser.role}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Created By</p>
+                    <p className="text-sm text-gray-900">{selectedUser.createdBy}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Financial Information */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <Card className="border-l-4 border-l-blue-500">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Share Capital</p>
+                    <p className="text-2xl font-bold text-blue-600">KSh {selectedUser.shareCapital.toLocaleString()}</p>
+                  </div>
+                  <Banknote className="h-8 w-8 text-blue-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-green-500">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Savings Balance</p>
+                    <p className="text-2xl font-bold text-green-600">KSh {selectedUser.savingsBalance.toLocaleString()}</p>
+                  </div>
+                  <PiggyBank className="h-8 w-8 text-green-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-red-500">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Loan Balance</p>
+                    <p className="text-2xl font-bold text-red-600">KSh {selectedUser.loanBalance.toLocaleString()}</p>
+                  </div>
+                  <Calculator className="h-8 w-8 text-red-600" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-purple-500">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">Total Deposits</p>
+                    <p className="text-2xl font-bold text-purple-600">KSh {selectedUser.totalDeposits.toLocaleString()}</p>
+                  </div>
+                  <TrendingUp className="h-8 w-8 text-purple-600" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Vehicles Information */}
+          {selectedUser.vehicles && selectedUser.vehicles.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Car className="h-5 w-5" />
+                  <span>Registered Vehicles ({selectedUser.vehicles.length})</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {selectedUser.vehicles.map((vehicle) => (
+                    <div key={vehicle.id} className="p-4 border rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold text-gray-900">{vehicle.plateNumber}</h4>
+                        <Badge className={vehicle.status === 'Active' ? 'bg-green-100 text-green-800' : 
+                                        vehicle.status === 'Maintenance' ? 'bg-yellow-100 text-yellow-800' : 
+                                        'bg-red-100 text-red-800'}>
+                          {vehicle.status}
+                        </Badge>
+                      </div>
+                      <div className="text-sm text-gray-600 space-y-1">
+                        <p><span className="font-medium">Model:</span> {vehicle.model} ({vehicle.year})</p>
+                        <p><span className="font-medium">Route:</span> {vehicle.route}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* No Vehicles Message */}
+          {(!selectedUser.vehicles || selectedUser.vehicles.length === 0) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Car className="h-5 w-5" />
+                  <span>Registered Vehicles</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="text-center py-8">
+                <Car className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                <h3 className="font-medium text-gray-900 mb-2">No Vehicles Registered</h3>
+                <p className="text-gray-500">This member has not registered any vehicles yet.</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout user={user} currentPage="admin/users/profiles" onNavigate={onNavigate} onLogout={onLogout}>

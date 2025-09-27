@@ -17,7 +17,23 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '../ui/dropdown-menu';
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../ui/dialog';
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 import { 
   Car, 
   Search, 
@@ -29,7 +45,9 @@ import {
   Calendar,
   MapPin,
   Plus,
-  Eye
+  Eye,
+  UserPlus,
+  Download
 } from 'lucide-react';
 
 interface FleetManagementProps {
@@ -47,13 +65,13 @@ const vehicles = [
   {
     id: 'V001',
     plateNumber: 'KCA 123X',
-    owner: 'James Mutua',
-    ownerId: 'AU001',
+    owner: 'John Kamau',
+    ownerId: '1',
     model: 'Toyota Hiace',
     year: '2019',
     route: 'Nairobi - Kikuyu',
     driver: 'Samuel Kiprop',
-    driverId: 'AU003',
+    driverId: 'D001',
     status: 'Active',
     insurance: 'Valid',
     insuranceExpiry: '2024-06-15',
@@ -64,8 +82,8 @@ const vehicles = [
   {
     id: 'V002',
     plateNumber: 'KBD 456Y',
-    owner: 'Catherine Muthoni',
-    ownerId: 'AU004',
+    owner: 'Grace Wanjiku',
+    ownerId: '2',
     model: 'Nissan Matatu',
     year: '2018',
     route: 'Nairobi - Thika',
@@ -81,8 +99,8 @@ const vehicles = [
   {
     id: 'V003',
     plateNumber: 'KCE 789Z',
-    owner: 'John Kamau',
-    ownerId: 'PU001',
+    owner: 'Robert Kiprop',
+    ownerId: '5',
     model: 'Toyota Hiace',
     year: '2020',
     route: 'Nairobi - Kisumu',
@@ -97,8 +115,21 @@ const vehicles = [
   }
 ];
 
+// Mock available drivers
+const availableDrivers = [
+  { id: 'D001', name: 'Samuel Kiprop', phone: '+254723456789', licenseNumber: 'DL001234', status: 'Available' },
+  { id: 'D002', name: 'Peter Wanjiku', phone: '+254734567890', licenseNumber: 'DL002345', status: 'Available' },
+  { id: 'D003', name: 'Mary Chebet', phone: '+254745678901', licenseNumber: 'DL003456', status: 'Available' },
+  { id: 'D004', name: 'Joseph Mwangi', phone: '+254756789012', licenseNumber: 'DL004567', status: 'Available' },
+  { id: 'D005', name: 'Grace Wanjiru', phone: '+254767890123', licenseNumber: 'DL005678', status: 'Available' }
+];
+
 export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementProps) {
   const [searchTerm, setSearchTerm] = useState('');
+  const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<any>(null);
+  const [selectedDriver, setSelectedDriver] = useState('');
+  const [vehicleList, setVehicleList] = useState(vehicles);
 
   const handleEditVehicle = (vehicleId: string) => {
     console.log('Editing vehicle:', vehicleId);
@@ -114,7 +145,79 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
     onNavigate(`admin/users/user_profile/${ownerId}`);
   };
 
-  const filteredVehicles = vehicles.filter(vehicle =>
+  const handleAssignDriver = (vehicle: any) => {
+    setSelectedVehicle(vehicle);
+    setSelectedDriver(vehicle.driverId || 'none');
+    setShowAssignDialog(true);
+  };
+
+  const handleAssignmentSave = () => {
+    if (!selectedVehicle) return;
+
+    // Handle unassigning driver
+    if (selectedDriver === 'none' || selectedDriver === '') {
+      setVehicleList(prev => prev.map(vehicle => 
+        vehicle.id === selectedVehicle.id 
+          ? { 
+              ...vehicle, 
+              driver: 'Not Assigned', 
+              driverId: null,
+              status: 'Inactive'
+            }
+          : vehicle
+      ));
+    } else {
+      // Handle assigning driver
+      const driver = availableDrivers.find(d => d.id === selectedDriver);
+      if (!driver) return;
+
+      setVehicleList(prev => prev.map(vehicle => 
+        vehicle.id === selectedVehicle.id 
+          ? { 
+              ...vehicle, 
+              driver: driver.name, 
+              driverId: driver.id,
+              status: vehicle.status === 'Pending' ? 'Active' : vehicle.status
+            }
+          : vehicle
+      ));
+    }
+
+    setShowAssignDialog(false);
+    setSelectedVehicle(null);
+    setSelectedDriver('');
+  };
+
+  const handleExportData = () => {
+    // Create CSV content
+    const headers = ['Vehicle ID', 'Plate Number', 'Owner', 'Model', 'Year', 'Route', 'Driver', 'Status', 'Insurance', 'Registration'];
+    const csvContent = [
+      headers.join(','),
+      ...filteredVehicles.map(vehicle => [
+        vehicle.id,
+        vehicle.plateNumber,
+        vehicle.owner,
+        `${vehicle.model} (${vehicle.year})`,
+        vehicle.year,
+        vehicle.route,
+        vehicle.driver,
+        vehicle.status,
+        vehicle.insurance,
+        vehicle.registration
+      ].join(','))
+    ].join('\n');
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `fleet_data_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const filteredVehicles = vehicleList.filter(vehicle =>
     vehicle.plateNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
     vehicle.owner.toLowerCase().includes(searchTerm.toLowerCase()) ||
     vehicle.model.toLowerCase().includes(searchTerm.toLowerCase())
@@ -160,22 +263,13 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
             <h1 className="text-2xl font-bold text-gray-900">Fleet Management</h1>
             <p className="text-gray-600 mt-1">Manage vehicle registrations and operations</p>
           </div>
-          <div className="flex space-x-3">
-            <Button 
-              variant="outline"
-              onClick={() => onNavigate('admin/fleet/routes')}
-            >
-              <MapPin className="h-4 w-4 mr-2" />
-              Manage Routes
-            </Button>
-            <Button 
-              onClick={() => onNavigate('admin/fleet/assignments')}
-              className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] hover:opacity-90"
-            >
-              <User className="h-4 w-4 mr-2" />
-              Assign Drivers
-            </Button>
-          </div>
+          <Button 
+            variant="outline"
+            onClick={() => onNavigate('admin/fleet/routes')}
+          >
+            <MapPin className="h-4 w-4 mr-2" />
+            Manage Routes
+          </Button>
         </div>
 
         {/* Stats Cards */}
@@ -185,7 +279,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Vehicles</p>
-                  <p className="text-2xl font-bold text-gray-900">{vehicles.length}</p>
+                  <p className="text-2xl font-bold text-gray-900">{vehicleList.length}</p>
                 </div>
                 <Car className="h-8 w-8 text-[var(--neon-turquoise)]" />
               </div>
@@ -197,7 +291,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                 <div>
                   <p className="text-sm font-medium text-gray-600">Active</p>
                   <p className="text-2xl font-bold text-green-600">
-                    {vehicles.filter(v => v.status === 'Active').length}
+                    {vehicleList.filter(v => v.status === 'Active').length}
                   </p>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
@@ -212,7 +306,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                 <div>
                   <p className="text-sm font-medium text-gray-600">Pending</p>
                   <p className="text-2xl font-bold text-yellow-600">
-                    {vehicles.filter(v => v.status === 'Pending').length}
+                    {vehicleList.filter(v => v.status === 'Pending').length}
                   </p>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center">
@@ -227,7 +321,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                 <div>
                   <p className="text-sm font-medium text-gray-600">Insurance Issues</p>
                   <p className="text-2xl font-bold text-red-600">
-                    {vehicles.filter(v => v.insurance === 'Expired').length}
+                    {vehicleList.filter(v => v.insurance === 'Expired').length}
                   </p>
                 </div>
                 <Shield className="h-8 w-8 text-red-600" />
@@ -247,22 +341,25 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
               className="pl-10"
             />
           </div>
-          <Button 
-            variant="outline"
-            onClick={() => onNavigate('admin/fleet/statuses')}
-          >
-            <Eye className="h-4 w-4 mr-2" />
-            Vehicle Status
-          </Button>
         </div>
 
         {/* Vehicles Table */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Car className="h-5 w-5" />
-              <span>All Vehicles</span>
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center space-x-2">
+                <Car className="h-5 w-5" />
+                <span>All Vehicles</span>
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportData}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export Data
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <Table>
@@ -290,7 +387,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                     <TableCell>
                       <button 
                         onClick={() => handleViewOwner(vehicle.ownerId)}
-                        className="text-blue-600 hover:text-blue-800 hover:underline"
+                        className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors duration-200"
                       >
                         {vehicle.owner}
                       </button>
@@ -351,9 +448,9 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                             <Edit className="h-4 w-4 mr-2" />
                             Edit Vehicle
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onNavigate('admin/fleet/assignments')}>
-                            <User className="h-4 w-4 mr-2" />
-                            Assign Driver
+                          <DropdownMenuItem onClick={() => handleAssignDriver(vehicle)}>
+                            <UserPlus className="h-4 w-4 mr-2" />
+                            {vehicle.driver === 'Not Assigned' ? 'Assign Driver' : 'Change Driver'}
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => handleViewOwner(vehicle.ownerId)}>
                             <Eye className="h-4 w-4 mr-2" />
@@ -380,6 +477,74 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
             )}
           </CardContent>
         </Card>
+
+        {/* Driver Assignment Dialog */}
+        <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {selectedVehicle?.driver === 'Not Assigned' ? 'Assign Driver' : 'Change Driver'}
+              </DialogTitle>
+              <DialogDescription>
+                {selectedVehicle && (
+                  <>Manage driver assignment for vehicle <strong>{selectedVehicle.plateNumber}</strong></>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="driver">Select Driver</Label>
+                <Select value={selectedDriver} onValueChange={setSelectedDriver}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a driver..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassign Driver</SelectItem>
+                    {availableDrivers.map((driver) => (
+                      <SelectItem key={driver.id} value={driver.id}>
+                        <div className="flex flex-col">
+                          <span>{driver.name}</span>
+                          <span className="text-xs text-gray-500">
+                            {driver.phone} • License: {driver.licenseNumber}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              {selectedVehicle && selectedVehicle.driver !== 'Not Assigned' && (
+                <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                  <div className="flex items-center space-x-2">
+                    <User className="h-4 w-4 text-yellow-600" />
+                    <span className="text-sm font-medium text-yellow-800">Current Driver</span>
+                  </div>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    {selectedVehicle.driver}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowAssignDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAssignmentSave}
+                className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] hover:opacity-90"
+              >
+                {selectedDriver === 'none' ? 'Unassign Driver' : 
+                 selectedVehicle?.driver === 'Not Assigned' ? 'Assign Driver' : 'Update Assignment'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AdminLayout>
   );
