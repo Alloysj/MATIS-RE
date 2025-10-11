@@ -1,5 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
-import { PrismaClient, Prisma, UserStatus } from '@prisma/client';
+import { PrismaClient, Prisma, UserStatus, VehicleStatus, RegistrationStatus, LoanStatus, InsuranceStatus } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { authenticate, AuthRequest } from '../middleware/auth';
 
@@ -120,6 +120,100 @@ type UserWithDetailRelations = Prisma.UserGetPayload<{
   include: typeof userDetailInclude;
 }>;
 
+const vehicleSummaryInclude = {
+  owner: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true
+    }
+  },
+  driver: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true
+    }
+  },
+  route: {
+    select: {
+      id: true,
+      name: true,
+      startPoint: true,
+      endPoint: true
+    }
+  },
+  savingsAccounts: {
+    select: {
+      balance: true
+    }
+  },
+  loans: {
+    select: {
+      id: true,
+      amount: true,
+      status: true
+    }
+  },
+  payments: {
+    orderBy: { paymentDate: 'desc' },
+    take: 1,
+    select: {
+      id: true,
+      paymentDate: true,
+      totalAmount: true
+    }
+  }
+} satisfies Prisma.VehicleInclude;
+
+const loanSummaryInclude = {
+  applicant: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true
+    }
+  },
+  vehicle: {
+    select: {
+      id: true,
+      plateNumber: true
+    }
+  }
+} satisfies Prisma.LoanInclude;
+
+const insuranceSummaryInclude = {
+  vehicle: {
+    select: {
+      id: true,
+      plateNumber: true,
+      owner: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true
+        }
+      }
+    }
+  }
+} satisfies Prisma.InsurancePolicyInclude;
+
+type VehicleWithSummaryRelations = Prisma.VehicleGetPayload<{
+  include: typeof vehicleSummaryInclude;
+}>;
+
+type LoanWithSummaryRelations = Prisma.LoanGetPayload<{
+  include: typeof loanSummaryInclude;
+}>;
+
+type InsuranceWithSummaryRelations = Prisma.InsurancePolicyGetPayload<{
+  include: typeof insuranceSummaryInclude;
+}>;
+
 const decimalToNumber = (value: Prisma.Decimal | null | undefined): number | null => {
   if (value == null) return null;
   return Number(value);
@@ -195,6 +289,7 @@ const parseDateUpdateValue = (value: unknown): Date | null | undefined => {
   const date = parseDateValue(value);
   return date ?? undefined;
 };
+
 const requireAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (!req.user?.id) {
     return res.status(401).json({ message: 'Authentication required' });
@@ -371,6 +466,132 @@ const mapUserToDetails = (user: UserWithDetailRelations) => {
     }))
   };
 };
+
+const mapVehicleToSummary = (vehicle: VehicleWithSummaryRelations) => {
+  const savingsTotal = vehicle.savingsAccounts.reduce((sum, account) => sum + (decimalToNumber(account.balance) ?? 0), 0);
+  const activeLoans = vehicle.loans.filter(
+    loan => loan.status !== LoanStatus.REPAID && loan.status !== LoanStatus.REJECTED
+  );
+  const outstandingLoanAmount = activeLoans.reduce(
+    (sum, loan) => sum + (decimalToNumber(loan.amount) ?? 0),
+    0
+  );
+
+  const lastPayment = vehicle.payments[0];
+
+  return {
+    id: vehicle.id,
+    plateNumber: vehicle.plateNumber,
+    model: vehicle.model ?? null,
+    vehicleType: vehicle.vehicleType ?? null,
+    yearOfManufacture: vehicle.yearOfManufacture ?? null,
+    statusCode: vehicle.status,
+    status: formatEnumLabel(vehicle.status) ?? vehicle.status,
+    registrationStatusCode: vehicle.registrationStatus,
+    registrationStatus: formatEnumLabel(vehicle.registrationStatus) ?? vehicle.registrationStatus,
+    insuranceStatusCode: vehicle.insuranceStatus,
+    insuranceStatus: formatEnumLabel(vehicle.insuranceStatus) ?? vehicle.insuranceStatus,
+    owner: vehicle.owner
+      ? {
+          id: vehicle.owner.id,
+          name: buildUserName(vehicle.owner),
+          phone: vehicle.owner.phone ?? null
+        }
+      : null,
+    driver: vehicle.driver
+      ? {
+          id: vehicle.driver.id,
+          name: buildUserName(vehicle.driver),
+          phone: vehicle.driver.phone ?? null
+        }
+      : null,
+    route: vehicle.route
+      ? {
+          id: vehicle.route.id,
+          name: vehicle.route.name,
+          startPoint: vehicle.route.startPoint,
+          endPoint: vehicle.route.endPoint
+        }
+      : null,
+    metrics: {
+      savingsBalance: savingsTotal,
+      outstandingLoanAmount,
+      activeLoanCount: activeLoans.length
+    },
+    lastPayment: lastPayment
+      ? {
+          id: lastPayment.id,
+          date: lastPayment.paymentDate.toISOString(),
+          amount: decimalToNumber(lastPayment.totalAmount)
+        }
+      : null
+  };
+};
+
+const mapLoanToSummary = (loan: LoanWithSummaryRelations) => {
+  const amount = decimalToNumber(loan.amount);
+  return {
+    id: loan.id,
+    applicantId: loan.applicantId,
+    vehicleId: loan.vehicleId,
+    amount,
+    statusCode: loan.status,
+    status: formatEnumLabel(loan.status) ?? loan.status,
+    typeCode: loan.type,
+    type: formatEnumLabel(loan.type) ?? loan.type,
+    applicationDate: loan.applicationDate,
+    approvedAt: loan.approvedAt ?? null,
+    applicant: loan.applicant
+      ? {
+          id: loan.applicant.id,
+          name: buildUserName(loan.applicant),
+          phone: loan.applicant.phone ?? null
+        }
+      : null,
+    vehicle: loan.vehicle
+      ? {
+          id: loan.vehicle.id,
+          plateNumber: loan.vehicle.plateNumber
+        }
+      : null
+  };
+};
+
+const mapInsurancePolicyToSummary = (policy: InsuranceWithSummaryRelations) => {
+  const premiumAmount = decimalToNumber(policy.premiumAmount);
+  let daysToExpiry: number | null = null;
+  if (policy.expiryDate) {
+    const diffMs = policy.expiryDate.getTime() - Date.now();
+    daysToExpiry = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  }
+
+  return {
+    id: policy.id,
+    vehicleId: policy.vehicleId,
+    statusCode: policy.status,
+    status: formatEnumLabel(policy.status) ?? policy.status,
+    premiumAmount,
+    policyType: policy.policyType ?? null,
+    provider: policy.provider ?? null,
+    startDate: policy.startDate ?? null,
+    expiryDate: policy.expiryDate ?? null,
+    daysToExpiry,
+    vehicle: policy.vehicle
+      ? {
+          id: policy.vehicle.id,
+          plateNumber: policy.vehicle.plateNumber,
+          owner: policy.vehicle.owner
+            ? {
+                id: policy.vehicle.owner.id,
+                name: buildUserName(policy.vehicle.owner),
+                phone: policy.vehicle.owner.phone ?? null
+              }
+            : null
+        }
+      : null
+  };
+};
+
 const listUsers = async (where: Prisma.UserWhereInput) => {
   const records = await prisma.user.findMany({
     where,
@@ -707,6 +928,179 @@ router.post('/disapprove-user', async (req, res) => {
     }
     console.error('Failed to disapprove user', error);
     res.status(500).json({ message: 'Failed to disapprove user' });
+  }
+});
+
+router.get('/dashboard/users', async (_req, res) => {
+  try {
+    const [users, statusGroups] = await Promise.all([
+      prisma.user.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: userSummaryInclude
+      }),
+      prisma.user.groupBy({ by: ['status'], _count: { _all: true } })
+    ]);
+
+    const items = users.map(mapUserToSummary);
+    const statusCounts: Record<UserStatus, number> = {
+      [UserStatus.ACTIVE]: 0,
+      [UserStatus.PENDING]: 0,
+      [UserStatus.SUSPENDED]: 0,
+      [UserStatus.INACTIVE]: 0
+    };
+
+    statusGroups.forEach(group => {
+      statusCounts[group.status] = group._count._all;
+    });
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        byStatus: statusCounts
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load dashboard users', error);
+    res.status(500).json({ message: 'Failed to load users data' });
+  }
+});
+
+router.get('/dashboard/vehicles', async (_req, res) => {
+  try {
+    const [vehicles, statusGroups, registrationGroups] = await Promise.all([
+      prisma.vehicle.findMany({
+        orderBy: { dateAdded: 'desc' },
+        include: vehicleSummaryInclude
+      }),
+      prisma.vehicle.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.vehicle.groupBy({ by: ['registrationStatus'], _count: { _all: true } })
+    ]);
+
+    const items = vehicles.map(mapVehicleToSummary);
+
+    const statusCounts: Record<VehicleStatus, number> = {
+      [VehicleStatus.ACTIVE]: 0,
+      [VehicleStatus.INACTIVE]: 0,
+      [VehicleStatus.MAINTENANCE]: 0,
+      [VehicleStatus.DECOMMISSIONED]: 0
+    };
+    statusGroups.forEach(group => {
+      statusCounts[group.status] = group._count._all;
+    });
+
+    const registrationCounts: Record<RegistrationStatus, number> = {
+      [RegistrationStatus.VALID]: 0,
+      [RegistrationStatus.EXPIRED]: 0,
+      [RegistrationStatus.PENDING]: 0
+    };
+    registrationGroups.forEach(group => {
+      registrationCounts[group.registrationStatus] = group._count._all;
+    });
+
+    const aggregateMetrics = items.reduce(
+      (acc, vehicle) => {
+        acc.savingsBalance += vehicle.metrics.savingsBalance;
+        acc.outstandingLoanAmount += vehicle.metrics.outstandingLoanAmount;
+        acc.activeLoanCount += vehicle.metrics.activeLoanCount;
+        return acc;
+      },
+      { savingsBalance: 0, outstandingLoanAmount: 0, activeLoanCount: 0 }
+    );
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        byStatus: statusCounts,
+        byRegistrationStatus: registrationCounts,
+        metrics: aggregateMetrics
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load dashboard vehicles', error);
+    res.status(500).json({ message: 'Failed to load vehicles data' });
+  }
+});
+
+router.get('/dashboard/loans', async (_req, res) => {
+  try {
+    const [loans, statusGroups, totalAggregate, outstandingAggregate] = await Promise.all([
+      prisma.loan.findMany({
+        orderBy: { applicationDate: 'desc' },
+        include: loanSummaryInclude
+      }),
+      prisma.loan.groupBy({ by: ['status'], _count: { _all: true } }),
+      prisma.loan.aggregate({ _sum: { amount: true } }),
+      prisma.loan.aggregate({
+        where: { status: { notIn: [LoanStatus.REPAID, LoanStatus.REJECTED] } },
+        _sum: { amount: true }
+      })
+    ]);
+
+    const items = loans.map(mapLoanToSummary);
+
+    const statusCounts: Record<LoanStatus, number> = {
+      [LoanStatus.PENDING]: 0,
+      [LoanStatus.APPROVED]: 0,
+      [LoanStatus.REJECTED]: 0,
+      [LoanStatus.DISBURSED]: 0,
+      [LoanStatus.REPAID]: 0,
+      [LoanStatus.DEFAULTED]: 0
+    };
+    statusGroups.forEach(group => {
+      statusCounts[group.status] = group._count._all;
+    });
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        byStatus: statusCounts,
+        sum: decimalToNumber(totalAggregate._sum.amount) ?? 0,
+        outstanding: decimalToNumber(outstandingAggregate._sum.amount) ?? 0
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load dashboard loans', error);
+    res.status(500).json({ message: 'Failed to load loans data' });
+  }
+});
+
+router.get('/dashboard/insurance', async (_req, res) => {
+  try {
+    const [policies, statusGroups] = await Promise.all([
+      prisma.insurancePolicy.findMany({
+        orderBy: { expiryDate: 'asc' },
+        include: insuranceSummaryInclude
+      }),
+      prisma.insurancePolicy.groupBy({ by: ['status'], _count: { _all: true } })
+    ]);
+
+    const items = policies.map(mapInsurancePolicyToSummary);
+
+    const statusCounts: Record<InsuranceStatus, number> = {
+      [InsuranceStatus.ACTIVE]: 0,
+      [InsuranceStatus.EXPIRED]: 0,
+      [InsuranceStatus.PENDING]: 0
+    };
+    statusGroups.forEach(group => {
+      statusCounts[group.status] = group._count._all;
+    });
+
+    const expiringSoon = items.filter(policy => typeof policy.daysToExpiry === 'number' && policy.daysToExpiry >= 0 && policy.daysToExpiry <= 30).length;
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        byStatus: statusCounts,
+        expiringSoon
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load dashboard insurance policies', error);
+    res.status(500).json({ message: 'Failed to load insurance data' });
   }
 });
 

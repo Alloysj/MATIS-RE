@@ -1,5 +1,3 @@
-import { UserDataService } from './userData';
-
 export interface User {
   id?: string;
   name: string;
@@ -16,6 +14,30 @@ export interface RouteConfig {
   requiresCapitalPayment?: boolean;
   isPublic?: boolean;
 }
+
+const ROLE_PERMISSION_FALLBACK: Record<User['role'], string[]> = {
+  'Vehicle Owner': ['view_own_profile', 'manage_own_vehicles', 'apply_loans', 'view_own_financials'],
+  Admin: [
+    'full_access',
+    'manage_members',
+    'approve_members',
+    'manage_roles',
+    'manage_fleet',
+    'manage_financials',
+    'manage_loans',
+    'manage_routes',
+    'manage_savings',
+    'manage_board_matters',
+    'manage_board',
+    'manage_staff',
+    'manage_expenses',
+    'manage_salary',
+    'view_reports'
+  ],
+  Staff: ['manage_loans', 'manage_expenses', 'manage_salary', 'view_reports'],
+  Chairperson: ['manage_board', 'view_reports', 'manage_board_matters'],
+  Treasurer: ['manage_financials', 'view_reports', 'manage_expenses']
+};
 
 // Define route configurations with their access requirements
 export const routeConfigs: Record<string, RouteConfig> = {
@@ -253,10 +275,9 @@ export class RouteProtectionService {
       return user.permissions;
     }
 
-    // Otherwise, get permissions from role
-    const roles = UserDataService.getAllRoles();
-    const userRole = roles.find(role => role.name === user.role);
-    return userRole ? userRole.permissions : [];
+    // Otherwise, fall back to predefined role permissions
+    const fallback = ROLE_PERMISSION_FALLBACK[user.role];
+    return fallback ? [...fallback] : [];
   }
 
   /**

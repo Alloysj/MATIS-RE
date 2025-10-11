@@ -10,6 +10,8 @@ import reportsRouter from './routes/reports';
 import adminRouter from './routes/admin';
 import rolesRouter from './routes/roles';
 import staffRouter from './routes/staff';
+import swaggerUi from 'swagger-ui-express';
+import swaggerDocument from './swagger';
 
 const prisma = new PrismaClient();
 const app = express();
@@ -37,6 +39,11 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 // Serialize BigInt values safely in all JSON responses
 app.set('json replacer', (_key: string, value: any) => (typeof value === 'bigint' ? value.toString() : value));
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+app.get('/api/docs.json', (_req, res) => {
+  res.json(swaggerDocument);
+});
 
 // List of models to expose via generic CRUD routes
 const resources = [

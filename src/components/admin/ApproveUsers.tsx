@@ -1,18 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Avatar, AvatarFallback } from '../ui/avatar';
-import { UserDataService, User } from '../../services/userData';
-import { 
-  CheckCircle, 
-  XCircle, 
-  Eye, 
-  Search, 
+import {
+  fetchDashboardUsers,
+  approveAdminUser,
+  setAdminUserStatus,
+  AdminUserSummary,
+  AdminUserStatusCode
+} from '../../services/admin';
+import {
+  CheckCircle,
+  XCircle,
+  Eye,
+  Search,
   Filter,
   Calendar,
   Phone,
@@ -20,7 +26,7 @@ import {
   MapPin,
   User as UserIcon,
   Car,
-  FileText
+  RefreshCcw
 } from 'lucide-react';
 
 interface ApproveUsersProps {
@@ -29,347 +35,361 @@ interface ApproveUsersProps {
   onLogout: () => void;
 }
 
+type StatusFilter = 'all' | AdminUserStatusCode;
+
+const STATUS_LABELS: Record<AdminUserStatusCode, string> = {
+  ACTIVE: 'Active',
+  PENDING: 'Pending',
+  SUSPENDED: 'Suspended',
+  INACTIVE: 'Inactive'
+};
+
+const getStatusBadge = (status: AdminUserStatusCode) => {
+  switch (status) {
+    case 'ACTIVE':
+      return 'bg-green-100 text-green-800 border-green-200';
+    case 'PENDING':
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'SUSPENDED':
+      return 'bg-red-100 text-red-800 border-red-200';
+    case 'INACTIVE':
+    default:
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+  }
+};
+
+const getVehicleStatusBadge = (status: string) => {
+  switch (status) {
+    case 'Active':
+      return 'bg-green-100 text-green-800 border-green-200';
+    case 'Maintenance':
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    case 'Inactive':
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+    case 'Decommissioned':
+      return 'bg-red-100 text-red-800 border-red-200';
+    default:
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+  }
+};
+
+const formatCurrency = (value: number | null | undefined) =>
+  value != null ? `KSh ${value.toLocaleString('en-KE')}` : 'KSh 0';
+
 export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) {
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<AdminUserSummary[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [selectedUser, setSelectedUser] = useState<AdminUserSummary | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
+  const [actionInFlight, setActionInFlight] = useState<string | null>(null);
+
+  const loadUsers = async () => {
+    setLoading(true);
+    try {
+      const response = await fetchDashboardUsers();
+      setUsers(response.items);
+    } catch (err) {
+      console.error('Failed to load admin users list', err);
+      setUsers([]);
+      setSelectedUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Load users data
-    const allUsers = UserDataService.getAllUsers();
-    setUsers(allUsers);
+    loadUsers();
   }, []);
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.phone.includes(searchTerm) ||
-                         user.memberNumber.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+  const filteredUsers = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
 
-  const pendingUsers = filteredUsers.filter(user => user.status === 'Pending');
-  const approvedUsers = filteredUsers.filter(user => user.status === 'Active');
-  const suspendedUsers = filteredUsers.filter(user => user.status === 'Suspended');
+    return users.filter(item => {
+      const matchesSearch =
+        !normalizedSearch ||
+        item.name.toLowerCase().includes(normalizedSearch) ||
+        (item.phone ?? '').toLowerCase().includes(normalizedSearch) ||
+        (item.memberNumber ?? '').toLowerCase().includes(normalizedSearch) ||
+        item.email.toLowerCase().includes(normalizedSearch);
 
-  const handleApproveUser = (userId: string) => {
-    const updatedUser = UserDataService.approveUser(userId);
-    if (updatedUser) {
-      setUsers(UserDataService.getAllUsers());
+      const matchesStatus = statusFilter === 'all' || item.statusCode === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [users, searchTerm, statusFilter]);
+
+  const groupedUsers = useMemo(() => {
+    const pending = filteredUsers.filter(userItem => userItem.statusCode === 'PENDING');
+    const active = filteredUsers.filter(userItem => userItem.statusCode === 'ACTIVE');
+    const suspended = filteredUsers.filter(userItem => userItem.statusCode === 'SUSPENDED');
+    const inactive = filteredUsers.filter(userItem => userItem.statusCode === 'INACTIVE');
+    return { pending, active, suspended, inactive };
+  }, [filteredUsers]);
+
+  const handleApproveUser = async (userId: string) => {
+    setActionInFlight(userId);
+    try {
+      const updated = await approveAdminUser(userId);
+      setUsers(prev => prev.map(item => (item.id === userId ? updated : item)));
+      if (selectedUser?.id === userId) {
+        setSelectedUser(updated);
+      }
+    } catch (err) {
+      console.error('Failed to approve user', err);
+    } finally {
+      setActionInFlight(null);
     }
   };
 
-  const handleSuspendUser = (userId: string) => {
-    const updatedUser = UserDataService.suspendUser(userId);
-    if (updatedUser) {
-      setUsers(UserDataService.getAllUsers());
+  const handleSuspendUser = async (userId: string, targetStatus: AdminUserStatusCode) => {
+    setActionInFlight(userId);
+    try {
+      const updated = await setAdminUserStatus(userId, targetStatus);
+      setUsers(prev => prev.map(item => (item.id === userId ? updated : item)));
+      if (selectedUser?.id === userId) {
+        setSelectedUser(updated);
+      }
+    } catch (err) {
+      console.error('Failed to update user status', err);
+    } finally {
+      setActionInFlight(null);
     }
   };
 
-  const handleViewDetails = (user: User) => {
-    setSelectedUser(user);
+  const handleViewDetails = (userItem: AdminUserSummary) => {
+    setSelectedUser(userItem);
     setShowDetailsDialog(true);
   };
 
-  const getStatusColor = (status: User['status']) => {
-    switch (status) {
-      case 'Active': return 'bg-green-100 text-green-800 border-green-200';
-      case 'Pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'Suspended': return 'bg-red-100 text-red-800 border-red-200';
-      case 'Inactive': return 'bg-gray-100 text-gray-800 border-gray-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const UserCard = ({ user }: { user: User }) => (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start space-x-4">
-            <Avatar className="h-12 w-12 border-2 border-[var(--neon-turquoise)]">
-              <AvatarFallback className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black font-semibold">
-                {user.name.charAt(0)}
-              </AvatarFallback>
-            </Avatar>
-            
-            <div className="flex-1">
-              <div className="flex items-center space-x-2 mb-2">
-                <h3 className="font-semibold text-gray-900">{user.name}</h3>
-                <Badge className={getStatusColor(user.status)}>
-                  {user.status}
-                </Badge>
-              </div>
-              
-              <div className="space-y-1 text-sm text-gray-600">
-                <div className="flex items-center space-x-2">
-                  <UserIcon className="h-4 w-4" />
-                  <span>{user.memberNumber}</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Phone className="h-4 w-4" />
-                  <span>{user.phone}</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Mail className="h-4 w-4" />
-                  <span>{user.email}</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Calendar className="h-4 w-4" />
-                  <span>Registered: {new Date(user.registrationDate).toLocaleDateString()}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex flex-col space-y-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => handleViewDetails(user)}
-            >
-              <Eye className="h-4 w-4 mr-1" />
-              View
-            </Button>
-            
-            {user.status === 'Pending' && (
-              <div className="flex space-x-1">
-                <Button
-                  size="sm"
-                  onClick={() => handleApproveUser(user.id)}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <CheckCircle className="h-4 w-4 mr-1" />
-                  Approve
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => handleSuspendUser(user.id)}
-                >
-                  <XCircle className="h-4 w-4 mr-1" />
-                  Reject
-                </Button>
-              </div>
-            )}
-            
-            {user.status === 'Active' && (
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => handleSuspendUser(user.id)}
-              >
-                <XCircle className="h-4 w-4 mr-1" />
-                Suspend
-              </Button>
-            )}
-            
-            {user.status === 'Suspended' && (
-              <Button
-                size="sm"
-                onClick={() => handleApproveUser(user.id)}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                <CheckCircle className="h-4 w-4 mr-1" />
-                Reactivate
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+  const StatusLegend = (
+    <div className="flex items-center space-x-3 text-sm text-gray-500">
+      <Filter className="h-4 w-4" />
+      <span>{filteredUsers.length} users</span>
+      {statusFilter !== 'all' && <span>• {STATUS_LABELS[statusFilter]} selected</span>}
+    </div>
   );
 
+  if (loading) {
+    return (
+      <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="Approve Users">
+        <div className="flex items-center justify-center h-[60vh] text-gray-500">
+          Loading users...
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
-    <AdminLayout user={user} currentPage="admin/users/approve" onNavigate={onNavigate} onLogout={onLogout}>
+    <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="Approve Users">
       <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">User Approvals</h1>
-          <p className="text-gray-600">Review and approve new member registrations</p>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card className="border-l-4 border-l-yellow-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Pending Approval</p>
-                  <p className="text-2xl font-bold text-yellow-600">{pendingUsers.length}</p>
-                </div>
-                <div className="h-12 w-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                  <FileText className="h-6 w-6 text-yellow-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-green-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Approved Users</p>
-                  <p className="text-2xl font-bold text-green-600">{approvedUsers.length}</p>
-                </div>
-                <div className="h-12 w-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <CheckCircle className="h-6 w-6 text-green-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-red-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Suspended Users</p>
-                  <p className="text-2xl font-bold text-red-600">{suspendedUsers.length}</p>
-                </div>
-                <div className="h-12 w-12 bg-red-100 rounded-lg flex items-center justify-center">
-                  <XCircle className="h-6 w-6 text-red-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-blue-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Users</p>
-                  <p className="text-2xl font-bold text-blue-600">{filteredUsers.length}</p>
-                </div>
-                <div className="h-12 w-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <UserIcon className="h-6 w-6 text-blue-600" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
         {/* Filters */}
         <Card>
-          <CardContent className="p-6">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Search by name, phone, or member number..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
+          <CardHeader>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <CardTitle>Member Approvals</CardTitle>
+              {StatusLegend}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search members..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
               </div>
-              
-              <div className="flex items-center space-x-2">
-                <Filter className="h-4 w-4 text-gray-400" />
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Filter by status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="Pending">Pending</SelectItem>
-                    <SelectItem value="Active">Active</SelectItem>
-                    <SelectItem value="Suspended">Suspended</SelectItem>
-                    <SelectItem value="Inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
+              <Select value={statusFilter} onValueChange={(value: StatusFilter) => setStatusFilter(value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="PENDING">Pending</SelectItem>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="SUSPENDED">Suspended</SelectItem>
+                  <SelectItem value="INACTIVE">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Button variant="outline" onClick={loadUsers} className="flex items-center space-x-2">
+                <RefreshCcw className="h-4 w-4" />
+                <span>Refresh</span>
+              </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Users List */}
-        <div className="space-y-4">
-          {filteredUsers.map((user) => (
-            <UserCard key={user.id} user={user} />
-          ))}
-          
-          {filteredUsers.length === 0 && (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <UserIcon className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <h3 className="font-medium text-gray-900 mb-2">No users found</h3>
-                <p className="text-gray-500">Try adjusting your search or filter criteria.</p>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+        {/* Pending Users */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-900">Pending Approvals</h2>
+            <Badge variant="secondary">{groupedUsers.pending.length} pending</Badge>
+          </div>
+          <div className="grid gap-4">
+            {groupedUsers.pending.map((userItem) => (
+              <UserCard
+                key={userItem.id}
+                user={userItem}
+                onApprove={() => handleApproveUser(userItem.id)}
+                onReject={() => handleSuspendUser(userItem.id, 'SUSPENDED')}
+                onView={() => handleViewDetails(userItem)}
+                actionInFlight={actionInFlight === userItem.id}
+              />
+            ))}
+            {groupedUsers.pending.length === 0 && (
+              <Card>
+                <CardContent className="p-8 text-center text-gray-500">
+                  No pending users match the selected filters.
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </section>
 
-        {/* User Details Dialog */}
+        {/* Active Users */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-900">Active Members</h2>
+            <Badge variant="outline">{groupedUsers.active.length} active</Badge>
+          </div>
+          <div className="grid gap-4">
+            {groupedUsers.active.map((userItem) => (
+              <UserCard
+                key={userItem.id}
+                user={userItem}
+                onReject={() => handleSuspendUser(userItem.id, 'SUSPENDED')}
+                onView={() => handleViewDetails(userItem)}
+                actionInFlight={actionInFlight === userItem.id}
+                showApprove={false}
+                rejectLabel="Suspend"
+              />
+            ))}
+            {groupedUsers.active.length === 0 && (
+              <Card>
+                <CardContent className="p-8 text-center text-gray-500">
+                  No active users match the selected filters.
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </section>
+
+        {/* Suspended Users */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-900">Suspended Members</h2>
+            <Badge variant="destructive">{groupedUsers.suspended.length} suspended</Badge>
+          </div>
+          <div className="grid gap-4">
+            {groupedUsers.suspended.map((userItem) => (
+              <UserCard
+                key={userItem.id}
+                user={userItem}
+                onApprove={() => handleApproveUser(userItem.id)}
+                onReject={() => handleSuspendUser(userItem.id, 'INACTIVE')}
+                onView={() => handleViewDetails(userItem)}
+                actionInFlight={actionInFlight === userItem.id}
+                rejectLabel="Mark Inactive"
+              />
+            ))}
+            {groupedUsers.suspended.length === 0 && (
+              <Card>
+                <CardContent className="p-8 text-center text-gray-500">
+                  No suspended users match the selected filters.
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </section>
+
+        {/* Inactive Users */}
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-gray-900">Inactive Members</h2>
+            <Badge variant="outline">{groupedUsers.inactive.length} inactive</Badge>
+          </div>
+          <div className="grid gap-4">
+            {groupedUsers.inactive.map((userItem) => (
+              <UserCard
+                key={userItem.id}
+                user={userItem}
+                onApprove={() => handleSuspendUser(userItem.id, 'ACTIVE')}
+                onView={() => handleViewDetails(userItem)}
+                actionInFlight={actionInFlight === userItem.id}
+                showReject={false}
+                approveLabel="Reactivate"
+              />
+            ))}
+            {groupedUsers.inactive.length === 0 && (
+              <Card>
+                <CardContent className="p-8 text-center text-gray-500">
+                  No inactive users match the selected filters.
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </section>
+
         <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
-          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl">
             <DialogHeader>
               <DialogTitle>User Details</DialogTitle>
-              <DialogDescription>
-                View comprehensive information about this user including personal details, financial status, and vehicles.
-              </DialogDescription>
+              <DialogDescription>Review the member profile, financials and vehicles.</DialogDescription>
             </DialogHeader>
-            
+
             {selectedUser && (
               <div className="space-y-6">
-                {/* Basic Info */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                    <p className="text-sm text-gray-900">{selectedUser.name}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Member Number</label>
-                    <p className="text-sm text-gray-900">{selectedUser.memberNumber}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-                    <p className="text-sm text-gray-900">{selectedUser.phone}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    <p className="text-sm text-gray-900">{selectedUser.email}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">ID Number</label>
-                    <p className="text-sm text-gray-900">{selectedUser.idNumber}</p>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                    <Badge className={getStatusColor(selectedUser.status)}>
-                      {selectedUser.role}
-                    </Badge>
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start space-x-4">
+                    <Avatar className="h-12 w-12 border-2 border-[var(--neon-turquoise)]">
+                      <AvatarFallback className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black font-semibold">
+                        {selectedUser.name.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <h2 className="text-xl font-semibold text-gray-900">{selectedUser.name}</h2>
+                        <Badge className={getStatusBadge(selectedUser.statusCode)}>
+                          {STATUS_LABELS[selectedUser.statusCode]}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-gray-500">{selectedUser.email}</p>
+                      <p className="text-sm text-gray-500">{selectedUser.phone ?? 'No phone provided'}</p>
+                    </div>
                   </div>
                 </div>
 
-                {/* Financial Info */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <InfoRow icon={UserIcon} label="Member Number" value={selectedUser.memberNumber ?? '—'} />
+                  <InfoRow icon={Phone} label="Phone" value={selectedUser.phone ?? '—'} />
+                  <InfoRow icon={Mail} label="Email" value={selectedUser.email} />
+                  <InfoRow
+                    icon={Calendar}
+                    label="Registered"
+                    value={selectedUser.registrationDate ? new Date(selectedUser.registrationDate).toLocaleDateString() : '—'}
+                  />
+                  <InfoRow icon={MapPin} label="Profile Category" value={selectedUser.profileCategoryLabel ?? '—'} />
+                  <InfoRow icon={UserIcon} label="Role" value={selectedUser.role?.name ?? 'Unassigned'} />
+                </div>
+
                 <div>
                   <h3 className="font-medium text-gray-900 mb-3">Financial Information</h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-600 mb-1">Share Capital</p>
-                      <p className="font-semibold">KSh {selectedUser.shareCapital.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-600 mb-1">Savings</p>
-                      <p className="font-semibold">KSh {selectedUser.savingsBalance.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-600 mb-1">Loan Balance</p>
-                      <p className="font-semibold">KSh {selectedUser.loanBalance.toLocaleString()}</p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-600 mb-1">Total Deposits</p>
-                      <p className="font-semibold">KSh {selectedUser.totalDeposits.toLocaleString()}</p>
-                    </div>
+                    <StatTile label="Share Capital" value={formatCurrency(selectedUser.shareCapital)} />
+                    <StatTile label="Savings" value={formatCurrency(selectedUser.savingsBalance)} />
+                    <StatTile label="Loan Balance" value={formatCurrency(selectedUser.loanBalance)} />
+                    <StatTile label="Total Deposits" value={formatCurrency(selectedUser.totalDeposits)} />
                   </div>
                 </div>
 
-                {/* Vehicles (if applicable) */}
-                {selectedUser.vehicles && selectedUser.vehicles.length > 0 && (
+                {selectedUser.vehicles.length > 0 && (
                   <div>
                     <h3 className="font-medium text-gray-900 mb-3">Vehicles</h3>
                     <div className="space-y-3">
@@ -380,12 +400,14 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                               <Car className="h-5 w-5 text-gray-400" />
                               <div>
                                 <p className="font-medium">{vehicle.plateNumber}</p>
-                                <p className="text-sm text-gray-600">{vehicle.model} ({vehicle.year})</p>
+                                <p className="text-sm text-gray-600">
+                                  {[vehicle.model, vehicle.year?.toString()].filter(Boolean).join(' • ') || '—'}
+                                </p>
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="text-sm font-medium">{vehicle.route}</p>
-                              <Badge className={getStatusColor(vehicle.status as any)}>
+                              <p className="text-sm font-medium">{vehicle.route?.name ?? 'Unassigned route'}</p>
+                              <Badge className={getVehicleStatusBadge(vehicle.status)}>
                                 {vehicle.status}
                               </Badge>
                             </div>
@@ -396,15 +418,12 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                   </div>
                 )}
 
-                {/* Action Buttons */}
                 <div className="flex justify-end space-x-3">
-                  {selectedUser.status === 'Pending' && (
+                  {selectedUser.statusCode === 'PENDING' && (
                     <>
                       <Button
-                        onClick={() => {
-                          handleApproveUser(selectedUser.id);
-                          setShowDetailsDialog(false);
-                        }}
+                        onClick={() => handleApproveUser(selectedUser.id)}
+                        disabled={actionInFlight === selectedUser.id}
                         className="bg-green-600 hover:bg-green-700 text-white"
                       >
                         <CheckCircle className="h-4 w-4 mr-2" />
@@ -412,36 +431,30 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                       </Button>
                       <Button
                         variant="destructive"
-                        onClick={() => {
-                          handleSuspendUser(selectedUser.id);
-                          setShowDetailsDialog(false);
-                        }}
+                        onClick={() => handleSuspendUser(selectedUser.id, 'SUSPENDED')}
+                        disabled={actionInFlight === selectedUser.id}
                       >
                         <XCircle className="h-4 w-4 mr-2" />
                         Reject User
                       </Button>
                     </>
                   )}
-                  
-                  {selectedUser.status === 'Active' && (
+
+                  {selectedUser.statusCode === 'ACTIVE' && (
                     <Button
                       variant="destructive"
-                      onClick={() => {
-                        handleSuspendUser(selectedUser.id);
-                        setShowDetailsDialog(false);
-                      }}
+                      onClick={() => handleSuspendUser(selectedUser.id, 'SUSPENDED')}
+                      disabled={actionInFlight === selectedUser.id}
                     >
                       <XCircle className="h-4 w-4 mr-2" />
                       Suspend User
                     </Button>
                   )}
-                  
-                  {selectedUser.status === 'Suspended' && (
+
+                  {selectedUser.statusCode === 'SUSPENDED' && (
                     <Button
-                      onClick={() => {
-                        handleApproveUser(selectedUser.id);
-                        setShowDetailsDialog(false);
-                      }}
+                      onClick={() => handleApproveUser(selectedUser.id)}
+                      disabled={actionInFlight === selectedUser.id}
                       className="bg-green-600 hover:bg-green-700 text-white"
                     >
                       <CheckCircle className="h-4 w-4 mr-2" />
@@ -457,3 +470,131 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
     </AdminLayout>
   );
 }
+
+interface UserCardProps {
+  user: AdminUserSummary;
+  onApprove?: () => void;
+  onReject?: () => void;
+  onView: () => void;
+  actionInFlight: boolean;
+  showApprove?: boolean;
+  showReject?: boolean;
+  approveLabel?: string;
+  rejectLabel?: string;
+}
+
+const UserCard = ({
+  user,
+  onApprove,
+  onReject,
+  onView,
+  actionInFlight,
+  showApprove = true,
+  showReject = true,
+  approveLabel = 'Approve',
+  rejectLabel = 'Reject'
+}: UserCardProps) => (
+  <Card className="hover:shadow-md transition-shadow">
+    <CardContent className="p-6">
+      <div className="flex items-start justify-between">
+        <div className="flex items-start space-x-4">
+          <Avatar className="h-12 w-12 border-2 border-[var(--neon-turquoise)]">
+            <AvatarFallback className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black font-semibold">
+              {user.name.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
+
+          <div className="flex-1">
+            <div className="flex items-center space-x-2 mb-2">
+              <h3 className="font-semibold text-gray-900">{user.name}</h3>
+              <Badge className={getStatusBadge(user.statusCode)}>
+                {STATUS_LABELS[user.statusCode]}
+              </Badge>
+            </div>
+
+            <div className="space-y-1 text-sm text-gray-600">
+              <div className="flex items-center space-x-2">
+                <UserIcon className="h-4 w-4" />
+                <span>{user.memberNumber ?? 'Not assigned'}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Phone className="h-4 w-4" />
+                <span>{user.phone ?? 'No phone'}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Mail className="h-4 w-4" />
+                <span>{user.email}</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Calendar className="h-4 w-4" />
+                <span>Registered: {user.registrationDate ? new Date(user.registrationDate).toLocaleDateString() : '—'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col space-y-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex items-center space-x-2"
+            onClick={onView}
+          >
+            <Eye className="h-4 w-4" />
+            <span>View</span>
+          </Button>
+          {showApprove && onApprove && (
+            <Button
+              size="sm"
+              className="bg-green-600 hover:bg-green-700 text-white flex items-center space-x-2"
+              onClick={onApprove}
+              disabled={actionInFlight}
+            >
+              <CheckCircle className="h-4 w-4" />
+              <span>{approveLabel}</span>
+            </Button>
+          )}
+          {showReject && onReject && (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="flex items-center space-x-2"
+              onClick={onReject}
+              disabled={actionInFlight}
+            >
+              <XCircle className="h-4 w-4" />
+              <span>{rejectLabel}</span>
+            </Button>
+          )}
+        </div>
+      </div>
+    </CardContent>
+  </Card>
+);
+
+const InfoRow = ({
+  icon: Icon,
+  label,
+  value
+}: {
+  icon: typeof UserIcon;
+  label: string;
+  value: string;
+}) => (
+  <div className="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg">
+    <Icon className="h-4 w-4 text-gray-400" />
+    <div>
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-sm font-medium text-gray-900">{value}</p>
+    </div>
+  </div>
+);
+
+const StatTile = ({ label, value }: { label: string; value: string }) => (
+  <div className="bg-gray-50 p-3 rounded-lg">
+    <p className="text-xs text-gray-600 mb-1">{label}</p>
+    <p className="font-semibold">{value}</p>
+  </div>
+);
+
+

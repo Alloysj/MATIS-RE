@@ -1,22 +1,36 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState, Dispatch, SetStateAction } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Checkbox } from '../ui/checkbox';
-import { UserDataService, UserRole, Permission } from '../../services/userData';
-import { 
-  Shield, 
-  Users, 
-  Plus, 
-  Edit, 
-  Trash2, 
+import {
+  fetchRoles,
+  fetchPermissions,
+  fetchRolePermissions,
+  fetchDashboardUsers,
+  createRole,
+  updateRole,
+  deleteRole,
+  addRolePermission,
+  removeRolePermission,
+  AdminRole,
+  AdminPermission,
+  RolePermissionRecord
+} from '../../services/admin';
+import {
+  Shield,
+  Users,
+  Plus,
+  Edit,
+  Trash2,
   Eye,
   Save,
-  X
+  X,
+  RefreshCcw
 } from 'lucide-react';
 
 interface UserRolesProps {
@@ -24,66 +38,72 @@ interface UserRolesProps {
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
+interface RoleWithAssignments extends AdminRole {
+  permissions: string[];
+  userCount: number;
+}
+const PERMISSION_CATEGORIES: AdminPermission['category'][] = [
+  'User Management',
+  'Fleet Management',
+  'Financial',
+  'Reports',
+  'System'
+];
 
 export function UserRoles({ user, onNavigate, onLogout }: UserRolesProps) {
-  const [roles, setRoles] = useState<UserRole[]>([]);
-  const [permissions, setPermissions] = useState<Permission[]>([]);
+  const [roles, setRoles] = useState<RoleWithAssignments[]>([]);
+  const [permissions, setPermissions] = useState<AdminPermission[]>([]);
+  const [rolePermissionRecords, setRolePermissionRecords] = useState<RolePermissionRecord[]>([]);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showViewDialog, setShowViewDialog] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    permissions: [] as string[]
-  });
+  const [selectedRole, setSelectedRole] = useState<RoleWithAssignments | null>(null);
+  const [formData, setFormData] = useState({ name: '', description: '', permissions: [] as string[] });
+  const [loading, setLoading] = useState(true);
+    
+  const loadData = async () => {
+    setLoading(true);
+    
+    try {
+      const [rolesResponse, permissionsResponse, rolePermissionsResponse, usersResponse] = await Promise.all([
+        fetchRoles(),
+        fetchPermissions(),
+        fetchRolePermissions(),
+        fetchDashboardUsers()
+      ]);
+
+      const userCountByRole = new Map<string, number>();
+      usersResponse.items.forEach(member => {
+        if (member.roleId) {
+          userCountByRole.set(member.roleId, (userCountByRole.get(member.roleId) ?? 0) + 1);
+        }      });
+
+      const permissionsByRole = rolePermissionsResponse.reduce<Record<string, string[]>>((acc, record) => {
+        acc[record.roleId] = acc[record.roleId] ? [...acc[record.roleId], record.permissionId] : [record.permissionId];
+        return acc;
+      }, {});
+
+      const mappedRoles: RoleWithAssignments[] = rolesResponse.map(role => ({
+        ...role,
+        permissions: permissionsByRole[role.id] ?? [],
+        userCount: userCountByRole.get(role.id) ?? 0
+      }));
+
+      setRoles(mappedRoles);
+      setPermissions(permissionsResponse);
+      setRolePermissionRecords(rolePermissionsResponse);
+    } catch (err) {
+      console.error('Failed to load roles overview', err);
+    } finally {
+      setLoading(false);
+    }  };
 
   useEffect(() => {
-    setRoles(UserDataService.getAllRoles());
-    setPermissions(UserDataService.getAllPermissions());
+    loadData();
   }, []);
 
-  const handleCreateRole = () => {
-    if (!formData.name.trim()) return;
-    
-    UserDataService.createRole({
-      name: formData.name,
-      description: formData.description,
-      permissions: formData.permissions
-    });
-    
-    setRoles(UserDataService.getAllRoles());
-    setShowCreateDialog(false);
-    resetForm();
-  };
-
-  const handleEditRole = () => {
-    if (!selectedRole) return;
-    
-    UserDataService.updateRole(selectedRole.id, {
-      name: formData.name,
-      description: formData.description,
-      permissions: formData.permissions
-    });
-    
-    setRoles(UserDataService.getAllRoles());
-    setShowEditDialog(false);
-    resetForm();
-  };
-
-  const handleDeleteRole = (roleId: string) => {
-    if (confirm('Are you sure you want to delete this role? This action cannot be undone.')) {
-      UserDataService.deleteRole(roleId);
-      setRoles(UserDataService.getAllRoles());
-    }
-  };
-
   const resetForm = () => {
-    setFormData({
-      name: '',
-      description: '',
-      permissions: []
-    });
+    setFormData({ name: '', description: '', permissions: [] });
     setSelectedRole(null);
   };
 
@@ -92,17 +112,17 @@ export function UserRoles({ user, onNavigate, onLogout }: UserRolesProps) {
     setShowCreateDialog(true);
   };
 
-  const openEditDialog = (role: UserRole) => {
+  const openEditDialog = (role: RoleWithAssignments) => {
     setSelectedRole(role);
     setFormData({
       name: role.name,
-      description: role.description,
-      permissions: role.permissions
+      description: role.description ?? '',
+      permissions: [...role.permissions]
     });
     setShowEditDialog(true);
   };
 
-  const openViewDialog = (role: UserRole) => {
+  const openViewDialog = (role: RoleWithAssignments) => {
     setSelectedRole(role);
     setShowViewDialog(true);
   };
@@ -111,295 +131,254 @@ export function UserRoles({ user, onNavigate, onLogout }: UserRolesProps) {
     setFormData(prev => ({
       ...prev,
       permissions: checked
-        ? [...prev.permissions, permissionId]
+        ? [...new Set([...prev.permissions, permissionId])]
         : prev.permissions.filter(id => id !== permissionId)
     }));
   };
 
-  const getPermissionsByCategory = (category: Permission['category']) => {
-    return permissions.filter(p => p.category === category);
-  };
+  const createRoleWithPermissions = async () => {
+    if (!formData.name.trim()) {
+      console.warn('Role name is required');
+      return;
+    }    try {
+      const newRole = await createRole({
+        name: formData.name.trim(),
+        description: formData.description.trim() || null
+      });
 
-  const getPermissionName = (permissionId: string) => {
-    const permission = permissions.find(p => p.id === permissionId);
-    return permission ? permission.name : permissionId;
-  };
+      await Promise.all(
+        formData.permissions.map(permissionId => addRolePermission(newRole.id, permissionId))
+      );
 
-  const RoleCard = ({ role }: { role: UserRole }) => (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center space-x-3">
-            <div className="h-12 w-12 bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] rounded-lg flex items-center justify-center">
-              <Shield className="h-6 w-6 text-black" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">{role.name}</h3>
-              <p className="text-sm text-gray-600">{role.description}</p>
-            </div>
-          </div>
-          
-          <div className="flex space-x-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openViewDialog(role)}
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openEditDialog(role)}
-            >
-              <Edit className="h-4 w-4" />
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => handleDeleteRole(role.id)}
-              disabled={role.userCount > 0}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-        
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center space-x-2">
-            <Users className="h-4 w-4 text-gray-400" />
-            <span className="text-gray-600">{role.userCount} users</span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Shield className="h-4 w-4 text-gray-400" />
-            <span className="text-gray-600">{role.permissions.length} permissions</span>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+      setShowCreateDialog(false);
+      await loadData();
+    } catch (err) {
+      console.error('Failed to create role', err);
+    }  };
 
-  const PermissionSection = ({ category, isForm = false }: { category: Permission['category'], isForm?: boolean }) => {
-    const categoryPermissions = getPermissionsByCategory(category);
-    
+  const updateRoleWithPermissions = async () => {
+    if (!selectedRole) return;
+    if (!formData.name.trim()) {
+      console.warn('Role name is required');
+      return;
+    }    try {
+      await updateRole(selectedRole.id, {
+        name: formData.name.trim(),
+        description: formData.description.trim() || null
+      });
+
+      const currentPermissions = new Set(selectedRole.permissions);
+      const updatedPermissions = new Set(formData.permissions);
+
+      const toAdd = formData.permissions.filter(permissionId => !currentPermissions.has(permissionId));
+      const toRemove = selectedRole.permissions.filter(permissionId => !updatedPermissions.has(permissionId));
+
+      await Promise.all(
+        toAdd.map(permissionId => addRolePermission(selectedRole.id, permissionId))
+      );
+
+      await Promise.all(
+        toRemove.map(permissionId => {
+          const record = rolePermissionRecords.find(
+            item => item.roleId === selectedRole.id && item.permissionId === permissionId
+          );
+          if (!record) return Promise.resolve();
+          return removeRolePermission(record.id);
+        })
+      );
+
+      setShowEditDialog(false);
+      await loadData();
+    } catch (err) {
+      console.error('Failed to update role', err);
+    }  };
+
+  const handleDeleteRole = async (role: RoleWithAssignments) => {
+    if (role.userCount > 0) {
+      console.warn('Cannot delete a role that has assigned users.');
+      return;
+    }    if (!confirm('Are you sure you want to delete this role? This action cannot be undone.')) {
+      return;
+    }    try {
+      await deleteRole(role.id);
+      await loadData();
+    } catch (err) {
+      console.error('Failed to delete role', err);
+    }  };
+
+  const getPermissionsByCategory = (category: AdminPermission['category']) =>
+    permissions.filter(permission => permission.category === category);
+
+  const getPermissionName = (permissionId: string) =>
+    permissions.find(permission => permission.id === permissionId)?.name ?? permissionId;
+
+  const totalUsersCovered = useMemo(() => roles.reduce((sum, role) => sum + role.userCount, 0), [roles]);
+
+  if (loading) {
     return (
-      <div className="space-y-3">
-        <h4 className="font-medium text-gray-900">{category}</h4>
-        <div className="space-y-2">
-          {categoryPermissions.map((permission) => (
-            <div key={permission.id} className="flex items-start space-x-3">
-              {isForm ? (
-                <Checkbox
-                  id={permission.id}
-                  checked={formData.permissions.includes(permission.id)}
-                  onCheckedChange={(checked) => handlePermissionChange(permission.id, checked as boolean)}
-                />
-              ) : (
-                <div className="w-4 h-4 mt-0.5">
-                  {selectedRole?.permissions.includes(permission.id) && (
-                    <div className="w-3 h-3 bg-green-600 rounded-full"></div>
-                  )}
-                </div>
-              )}
-              <div className="flex-1">
-                <label htmlFor={permission.id} className="text-sm font-medium text-gray-900 cursor-pointer">
-                  {permission.name}
-                </label>
-                <p className="text-xs text-gray-600">{permission.description}</p>
-              </div>
-            </div>
-          ))}
+      <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="User Roles">
+        <div className="flex items-center justify-center h-[60vh] text-gray-500">
+          Loading roles...
         </div>
-      </div>
+      </AdminLayout>
     );
-  };
-
+  }
   return (
-    <AdminLayout user={user} currentPage="admin/users/roles" onNavigate={onNavigate} onLogout={onLogout}>
+    <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="User Roles">
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">User Roles & Permissions</h1>
-            <p className="text-gray-600">Manage user roles and their associated permissions</p>
+            <h1 className="text-2xl font-semibold text-gray-900">Role Management</h1>
+            <p className="text-gray-500">
+              Manage role definitions, descriptions, and permissions for all members.
+            </p>
           </div>
-          
-          <Button onClick={openCreateDialog} className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black hover:opacity-90">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Role
-          </Button>
+          <div className="flex items-center space-x-3">
+            <Button variant="outline" onClick={loadData} className="flex items-center space-x-2">
+              <RefreshCcw className="h-4 w-4" />
+              <span>Refresh</span>
+            </Button>
+            <Button
+              onClick={openCreateDialog}
+              className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black hover:opacity-90 flex items-center space-x-2"
+            >
+              <Plus className="h-4 w-4" />
+              <span>New Role</span>
+            </Button>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <SummaryCard
+            icon={Shield}
+            title="Active Roles"
+            value={roles.length.toString()}
+            detail={`${permissions.length} available permissions`}
+          />
+          <SummaryCard
+            icon={Users}
+            title="Members Covered"
+            value={totalUsersCovered.toLocaleString()}
+            detail="Total users assigned to roles"
+          />
+          <SummaryCard
+            icon={Eye}
+            title="Permission Categories"
+            value={PERMISSION_CATEGORIES.length.toString()}
+            detail="Group permissions for easy assignment"
+          />
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="border-l-4 border-l-blue-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Roles</p>
-                  <p className="text-2xl font-bold text-blue-600">{roles.length}</p>
-                </div>
-                <Shield className="h-8 w-8 text-blue-600" />
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            {roles.map(role => (
+              <Card key={role.id} className="hover:shadow-md transition-shadow">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>{role.name}</CardTitle>
+                    <div className="flex items-center space-x-2">
+                      <Badge variant="outline">{role.userCount} users</Badge>
+                      <Button variant="ghost" size="icon" onClick={() => openViewDialog(role)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => openEditDialog(role)}>
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button variant="destructive" size="icon" onClick={() => handleDeleteRole(role)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  {role.description && <p className="text-sm text-gray-500">{role.description}</p>}                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <p className="font-medium text-gray-900">Permissions</p>
+                  <div className="flex flex-wrap gap-2">
+                    {role.permissions.length === 0 && (
+                      <Badge variant="outline">No permissions assigned</Badge>
+                    )}                    {role.permissions.map(permissionId => (
+                      <Badge key={permissionId} variant="outline">
+                        {getPermissionName(permissionId)}                      </Badge>
+                    ))}                  </div>
+                </CardContent>
+              </Card>
+            ))}          </div>
 
-          <Card className="border-l-4 border-l-green-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Permissions</p>
-                  <p className="text-2xl font-bold text-green-600">{permissions.length}</p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Permissions Catalogue</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {PERMISSION_CATEGORIES.map(category => (
+                <div key={category} className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase">{category}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {getPermissionsByCategory(category).map(permission => (
+                      <Badge key={permission.id} variant="outline">
+                        {permission.name}                      </Badge>
+                    ))}                  </div>
                 </div>
-                <Shield className="h-8 w-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-purple-500">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Total Users</p>
-                  <p className="text-2xl font-bold text-purple-600">
-                    {roles.reduce((sum, role) => sum + role.userCount, 0)}
-                  </p>
-                </div>
-                <Users className="h-8 w-8 text-purple-600" />
-              </div>
-            </CardContent>
+              ))}            </CardContent>
           </Card>
         </div>
 
-        {/* Roles Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {roles.map((role) => (
-            <RoleCard key={role.id} role={role} />
-          ))}
-        </div>
-
-        {/* Create Role Dialog */}
-        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        {/* Create Role Dialog */}        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
           <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Create New Role</DialogTitle>
+              <DialogTitle>Create Role</DialogTitle>
               <DialogDescription>
-                Create a new user role and assign specific permissions to control access to different parts of the system.
+                Define a new role and assign the permissions that determine accessible features.
               </DialogDescription>
             </DialogHeader>
-            
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Role Name</label>
-                  <Input
-                    value={formData.name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Enter role name"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                  <Textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Describe this role's purpose"
-                    className="min-h-[40px]"
-                  />
-                </div>
-              </div>
 
-              <div>
-                <h3 className="font-medium text-gray-900 mb-4">Permissions</h3>
-                <div className="space-y-6">
-                  <PermissionSection category="User Management" isForm />
-                  <PermissionSection category="Fleet Management" isForm />
-                  <PermissionSection category="Financial" isForm />
-                  <PermissionSection category="Reports" isForm />
-                  <PermissionSection category="System" isForm />
-                </div>
-              </div>
+            <RoleForm
+              formData={formData}              setFormData={setFormData}              permissions={permissions}              onPermissionToggle={handlePermissionChange}            />
 
-              <div className="flex justify-end space-x-3">
-                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-                  <X className="h-4 w-4 mr-2" />
-                  Cancel
-                </Button>
-                <Button onClick={handleCreateRole} className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black hover:opacity-90">
-                  <Save className="h-4 w-4 mr-2" />
-                  Create Role
-                </Button>
-              </div>
+            <div className="flex justify-end space-x-3">
+              <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={createRoleWithPermissions} className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black hover:opacity-90">
+                <Save className="h-4 w-4 mr-2" />
+                Create Role
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
 
-        {/* Edit Role Dialog */}
-        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        {/* Edit Role Dialog */}        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
           <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Edit Role</DialogTitle>
               <DialogDescription>
-                Modify the role name, description, and permissions. Changes will affect all users assigned to this role.
+                Update the role name, description, or permissions. Changes affect all assigned users.
               </DialogDescription>
             </DialogHeader>
-            
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Role Name</label>
-                  <Input
-                    value={formData.name}
-                    onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                    placeholder="Enter role name"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                  <Textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                    placeholder="Describe this role's purpose"
-                    className="min-h-[40px]"
-                  />
-                </div>
-              </div>
 
-              <div>
-                <h3 className="font-medium text-gray-900 mb-4">Permissions</h3>
-                <div className="space-y-6">
-                  <PermissionSection category="User Management" isForm />
-                  <PermissionSection category="Fleet Management" isForm />
-                  <PermissionSection category="Financial" isForm />
-                  <PermissionSection category="Reports" isForm />
-                  <PermissionSection category="System" isForm />
-                </div>
-              </div>
+            <RoleForm
+              formData={formData}              setFormData={setFormData}              permissions={permissions}              onPermissionToggle={handlePermissionChange}            />
 
-              <div className="flex justify-end space-x-3">
-                <Button variant="outline" onClick={() => setShowEditDialog(false)}>
-                  <X className="h-4 w-4 mr-2" />
-                  Cancel
-                </Button>
-                <Button onClick={handleEditRole} className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black hover:opacity-90">
-                  <Save className="h-4 w-4 mr-2" />
-                  Update Role
-                </Button>
-              </div>
+            <div className="flex justify-end space-x-3">
+              <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={updateRoleWithPermissions} className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black hover:opacity-90">
+                <Save className="h-4 w-4 mr-2" />
+                Update Role
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
 
-        {/* View Role Dialog */}
-        <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+        {/* View Role Dialog */}        <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Role Details</DialogTitle>
               <DialogDescription>
-                View detailed information about this role including assigned permissions and user count.
+                View the assigned permissions and member coverage for this role.
               </DialogDescription>
             </DialogHeader>
-            
+
             {selectedRole && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -413,19 +392,27 @@ export function UserRoles({ user, onNavigate, onLogout }: UserRolesProps) {
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                    <p className="text-sm text-gray-900">{selectedRole.description}</p>
+                    <p className="text-sm text-gray-900">{selectedRole.description ?? '—'}</p>
                   </div>
                 </div>
 
                 <div>
                   <h3 className="font-medium text-gray-900 mb-4">Assigned Permissions</h3>
                   <div className="space-y-6">
-                    <PermissionSection category="User Management" />
-                    <PermissionSection category="Fleet Management" />
-                    <PermissionSection category="Financial" />
-                    <PermissionSection category="Reports" />
-                    <PermissionSection category="System" />
-                  </div>
+                    {PERMISSION_CATEGORIES.map(category => (
+                      <div key={category}>
+                        <p className="text-xs font-semibold text-gray-500 uppercase mb-2">{category}</p>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedRole.permissions
+                            .filter(permissionId => permissions.find(p => p.id === permissionId)?.category === category)
+                            .map(permissionId => (
+                              <Badge key={permissionId} variant="outline">
+                                {getPermissionName(permissionId)}                              </Badge>
+                            ))}                          {selectedRole.permissions.filter(permissionId => permissions.find(p => p.id === permissionId)?.category === category).length === 0 && (
+                            <Badge variant="outline">No permissions</Badge>
+                          )}                        </div>
+                      </div>
+                    ))}                  </div>
                 </div>
 
                 <div className="flex justify-end">
@@ -434,10 +421,101 @@ export function UserRoles({ user, onNavigate, onLogout }: UserRolesProps) {
                   </Button>
                 </div>
               </div>
-            )}
-          </DialogContent>
+            )}          </DialogContent>
         </Dialog>
       </div>
     </AdminLayout>
   );
 }
+const SummaryCard = ({
+  icon: Icon,
+  title,
+  value,
+  detail
+}: {
+  icon: typeof Shield;
+  title: string;
+  value: string;
+  detail: string;
+}) => (
+  <Card className="relative overflow-hidden">
+    <CardHeader className="pb-2">
+      <div className="flex items-center justify-between">
+        <CardTitle className="text-sm font-medium text-gray-500">{title}</CardTitle>
+        <div className="p-2 rounded-lg bg-gray-50">
+          <Icon className="h-4 w-4 text-gray-500" />
+        </div>
+      </div>
+    </CardHeader>
+    <CardContent className="space-y-2">
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <p className="text-xs text-gray-400">{detail}</p>
+    </CardContent>
+  </Card>
+);
+
+const RoleForm = ({
+  formData,
+  setFormData,
+  permissions,
+  onPermissionToggle
+}: {
+  formData: { name: string; description: string; permissions: string[] };
+  setFormData: Dispatch<SetStateAction<{ name: string; description: string; permissions: string[] }>>;
+  permissions: AdminPermission[];
+  onPermissionToggle: (permissionId: string, checked: boolean) => void;
+}) => (
+  <div className="space-y-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Role Name</label>
+        <Input
+          value={formData.name}          onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}          placeholder="Enter role name"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+        <Textarea
+          value={formData.description}          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}          placeholder="Describe the purpose of this role"
+          className="min-h-[40px]"
+        />
+      </div>
+    </div>
+
+    <div>
+      <h3 className="font-medium text-gray-900 mb-4">Permissions</h3>
+      <div className="space-y-6">
+        {PERMISSION_CATEGORIES.map(category => (
+          <div key={category} className="space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase">{category}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {permissions
+                .filter(permission => permission.category === category)
+                .map(permission => {
+                  const checked = formData.permissions.includes(permission.id);
+                  return (
+                    <label key={permission.id} className="flex items-start space-x-3 rounded-lg border border-gray-200 p-3 hover:border-[var(--neon-turquoise)] transition">
+                      <Checkbox
+                        checked={checked}                        onCheckedChange={(value) => onPermissionToggle(permission.id, Boolean(value))}                      />
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{permission.name}</p>
+                        {permission.description && (
+                          <p className="text-xs text-gray-500">{permission.description}</p>
+                        )}                      </div>
+                    </label>
+                  );
+                })}              {permissions.filter(permission => permission.category === category).length === 0 && (
+                <p className="text-sm text-gray-500">No permissions in this category.</p>
+              )}            </div>
+          </div>
+        ))}      </div>
+    </div>
+  </div>
+);
+
+
+
+
+
+
+

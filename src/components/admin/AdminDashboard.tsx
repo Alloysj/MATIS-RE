@@ -1,20 +1,43 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { 
-  Users, 
-  Car, 
-  DollarSign, 
-  Shield, 
-  TrendingUp, 
+import {
+  Users,
+  Car,
+  DollarSign,
+  Shield,
+  TrendingUp,
   UserCheck,
   FileText,
   AlertTriangle,
   CheckCircle,
-  Clock
+  Clock,
+  RefreshCcw
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer
+} from 'recharts';
+import {
+  DashboardUsersResponse,
+  DashboardVehiclesResponse,
+  DashboardLoansResponse,
+  DashboardInsuranceResponse,
+  fetchDashboardUsers,
+  fetchDashboardVehicles,
+  fetchDashboardLoans,
+  fetchDashboardInsurance
+} from '../../services/admin';
 
 interface AdminDashboardProps {
   user: {
@@ -26,58 +49,292 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-// Mock data for charts
-const financialData = [
-  { month: 'Jan', loans: 45000, savings: 28000, insurance: 12000 },
-  { month: 'Feb', loans: 52000, savings: 31000, insurance: 14000 },
-  { month: 'Mar', loans: 48000, savings: 29000, insurance: 13000 },
-  { month: 'Apr', loans: 61000, savings: 35000, insurance: 16000 },
-  { month: 'May', loans: 55000, savings: 33000, insurance: 15000 },
-  { month: 'Jun', loans: 67000, savings: 38000, insurance: 18000 }
-];
+type PanelState<T> = {
+  data: T | null;
+  loading: boolean;
+  error: string | null;
+};
 
-const userRoleData = [
-  { name: 'Vehicle Owners', value: 156, color: 'var(--neon-turquoise)' },
-  { name: 'Drivers', value: 89, color: 'var(--neon-yellow)' },
-  { name: 'Staff', value: 12, color: 'var(--neon-orange)' },
-  { name: 'Admins', value: 3, color: 'var(--neon-purple)' }
-];
+const createInitialState = <T,>(): PanelState<T> => ({
+  data: null,
+  loading: true,
+  error: null
+});
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+type MonthBucket = {
+  key: string;
+  label: string;
+  start: Date;
+  end: Date;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const createMonthBuckets = (months = 6): MonthBucket[] => {
+  const normalized = clamp(Math.floor(months), 1, 24);
+  const now = new Date();
+  const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const buckets: MonthBucket[] = [];
+
+  for (let i = normalized - 1; i >= 0; i -= 1) {
+    const start = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - i, 1));
+    const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+    buckets.push({
+      key: `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`,
+      label: MONTH_NAMES[start.getUTCMonth()],
+      start,
+      end
+    });
+  }
+
+  return buckets;
+};
+
+const formatCurrency = (value: number | null | undefined): string => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '--';
+  return `KSh ${value.toLocaleString('en-KE', { maximumFractionDigits: 0 })}`;
+};
+
+const formatNumber = (value: number | null | undefined): string => {
+  if (value === null || value === undefined || Number.isNaN(value)) return '--';
+  return value.toLocaleString('en-KE');
+};
+
+const roleCategoryColors: Record<string, string> = {
+  'Vehicle Owners': 'var(--neon-turquoise)',
+  Drivers: 'var(--neon-yellow)',
+  Staff: 'var(--neon-orange)',
+  Admins: 'var(--neon-purple)',
+  Other: 'var(--electric-blue)',
+  Unassigned: 'var(--hot-pink)'
+};
 
 export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardProps) {
-  const stats = [
-    {
-      title: 'Total Users',
-      value: '260',
-      change: '+12%',
-      icon: Users,
-      color: 'from-[var(--neon-turquoise)] to-[var(--electric-blue)]',
-      description: '15 new this month'
-    },
-    {
-      title: 'Active Vehicles',
-      value: '142',
-      change: '+8%',
-      icon: Car,
-      color: 'from-[var(--neon-yellow)] to-[var(--neon-orange)]',
-      description: '8 pending approval'
-    },
-    {
-      title: 'Total Loans',
-      value: 'KSh 2.4M',
-      change: '+15%',
-      icon: DollarSign,
-      color: 'from-[var(--neon-orange)] to-[var(--hot-pink)]',
-      description: '23 applications pending'
-    },
-    {
-      title: 'Insurance Active',
-      value: '134',
-      change: '+5%',
-      icon: Shield,
-      color: 'from-[var(--neon-purple)] to-[var(--neon-turquoise)]',
-      description: '12 expiring soon'
+  const [usersState, setUsersState] = useState<PanelState<DashboardUsersResponse>>(createInitialState);
+  const [vehiclesState, setVehiclesState] = useState<PanelState<DashboardVehiclesResponse>>(createInitialState);
+  const [loansState, setLoansState] = useState<PanelState<DashboardLoansResponse>>(createInitialState);
+  const [insuranceState, setInsuranceState] = useState<PanelState<DashboardInsuranceResponse>>(createInitialState);
+
+  const loadUsers = useCallback(async () => {
+    setUsersState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const data = await fetchDashboardUsers();
+      setUsersState({ data, loading: false, error: null });
+    } catch (error) {
+      console.error('Failed to load admin dashboard users data', error);
+      setUsersState({
+        data: null,
+        loading: false,
+        error: null
+      });
     }
-  ];
+  }, []);
+
+  const loadVehicles = useCallback(async () => {
+    setVehiclesState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const data = await fetchDashboardVehicles();
+      setVehiclesState({ data, loading: false, error: null });
+    } catch (error) {
+      console.error('Failed to load admin dashboard vehicles data', error);
+      setVehiclesState({
+        data: null,
+        loading: false,
+        error: null
+      });
+    }
+  }, []);
+
+  const loadLoans = useCallback(async () => {
+    setLoansState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const data = await fetchDashboardLoans();
+      setLoansState({ data, loading: false, error: null });
+    } catch (error) {
+      console.error('Failed to load admin dashboard loans data', error);
+      setLoansState({
+        data: null,
+        loading: false,
+        error: null
+      });
+    }
+  }, []);
+
+  const loadInsurance = useCallback(async () => {
+    setInsuranceState(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const data = await fetchDashboardInsurance();
+      setInsuranceState({ data, loading: false, error: null });
+    } catch (error) {
+      console.error('Failed to load admin dashboard insurance data', error);
+      setInsuranceState({
+        data: null,
+        loading: false,
+        error: null
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    loadUsers();
+    loadVehicles();
+    loadLoans();
+    loadInsurance();
+  }, [loadUsers, loadVehicles, loadLoans, loadInsurance]);
+
+  const newUsersThisMonth = useMemo(() => {
+    if (!usersState.data) return 0;
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth();
+    return usersState.data.items.filter(userItem => {
+      const created = new Date(userItem.createdAt);
+      return created.getUTCFullYear() === currentYear && created.getUTCMonth() === currentMonth;
+    }).length;
+  }, [usersState.data]);
+
+  const stats = useMemo(() => {
+    const totalUsers = usersState.data?.totals.total ?? null;
+    const activeVehicles = vehiclesState.data?.totals.byStatus.ACTIVE ?? null;
+    const totalLoanAmount = loansState.data?.totals.sum ?? null;
+    const pendingLoans = loansState.data?.totals.byStatus.PENDING ?? 0;
+    const activePolicies = insuranceState.data?.totals.byStatus.ACTIVE ?? null;
+    const expiringPolicies = insuranceState.data?.totals.expiringSoon ?? 0;
+    const pendingUsers = usersState.data?.totals.byStatus.PENDING ?? 0;
+    const vehiclesPendingRegistration = vehiclesState.data?.totals.byRegistrationStatus.PENDING ?? 0;
+
+    return [
+      {
+        key: 'users',
+        title: 'Total Users',
+        value: formatNumber(totalUsers),
+        change: usersState.loading ? 'Loading...' : `${newUsersThisMonth} new this month`,
+        icon: Users,
+        color: 'from-[var(--neon-turquoise)] to-[var(--electric-blue)]',
+        description: `${pendingUsers} pending approval`
+      },
+      {
+        key: 'vehicles',
+        title: 'Active Vehicles',
+        value: formatNumber(activeVehicles),
+        change: vehiclesState.loading ? 'Loading...' : `${vehiclesPendingRegistration} pending approval`,
+        icon: Car,
+        color: 'from-[var(--neon-yellow)] to-[var(--neon-orange)]',
+        description: 'Fleet overview'
+      },
+      {
+        key: 'loans',
+        title: 'Total Loans',
+        value: formatCurrency(totalLoanAmount),
+        change: loansState.loading ? 'Loading...' : `${pendingLoans} applications pending`,
+        icon: DollarSign,
+        color: 'from-[var(--neon-orange)] to-[var(--hot-pink)]',
+        description: 'Loan portfolio'
+      },
+      {
+        key: 'insurance',
+        title: 'Insurance Active',
+        value: formatNumber(activePolicies),
+        change: insuranceState.loading ? 'Loading...' : `${expiringPolicies} expiring soon`,
+        icon: Shield,
+        color: 'from-[var(--neon-purple)] to-[var(--neon-turquoise)]',
+        description: 'Policy monitoring'
+      }
+    ];
+  }, [
+    usersState.data,
+    usersState.loading,
+    usersState.error,
+    newUsersThisMonth,
+    vehiclesState.data,
+    vehiclesState.loading,
+    vehiclesState.error,
+    loansState.data,
+    loansState.loading,
+    loansState.error,
+    insuranceState.data,
+    insuranceState.loading,
+    insuranceState.error
+  ]);
+
+  const financialData = useMemo(() => {
+    const buckets = createMonthBuckets(6);
+    const mapped = new Map(
+      buckets.map(bucket => [
+        bucket.key,
+        {
+          month: bucket.label,
+          loans: 0,
+          savings: 0,
+          insurance: 0
+        }
+      ])
+    );
+
+    const assignToBucket = (date: string | null | undefined, amount: number | null | undefined, key: 'loans' | 'savings' | 'insurance') => {
+      if (!date || amount === null || amount === undefined || Number.isNaN(amount)) return;
+      const parsed = new Date(date);
+      if (Number.isNaN(parsed.getTime())) return;
+      const bucketKey = `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}`;
+      const bucket = mapped.get(bucketKey);
+      if (bucket) {
+        bucket[key] += amount;
+      }
+    };
+
+    loansState.data?.items.forEach(loan => {
+      assignToBucket(loan.applicationDate, loan.amount ?? 0, 'loans');
+    });
+
+    vehiclesState.data?.items.forEach(vehicle => {
+      const savingsAmount = vehicle.metrics.savingsBalance ?? 0;
+      assignToBucket(vehicle.lastPayment?.date ?? null, savingsAmount, 'savings');
+    });
+
+    insuranceState.data?.items.forEach(policy => {
+      assignToBucket(policy.startDate ?? policy.expiryDate, policy.premiumAmount ?? 0, 'insurance');
+    });
+
+    return Array.from(mapped.values());
+  }, [loansState.data, vehiclesState.data, insuranceState.data]);
+
+  const userRoleData = useMemo(() => {
+    if (!usersState.data) return [];
+
+    const counts: Record<string, number> = {
+      'Vehicle Owners': 0,
+      Drivers: 0,
+      Staff: 0,
+      Admins: 0,
+      Other: 0,
+      Unassigned: 0
+    };
+
+    const categorize = (roleName: string | null | undefined): keyof typeof counts => {
+      if (!roleName) return 'Unassigned';
+      const normalized = roleName.trim().toLowerCase();
+      if (normalized.includes('admin')) return 'Admins';
+      if (normalized.includes('owner')) return 'Vehicle Owners';
+      if (normalized.includes('driver')) return 'Drivers';
+      if (normalized.includes('staff') || normalized.includes('employee')) return 'Staff';
+      return 'Other';
+    };
+
+    usersState.data.items.forEach(item => {
+      const category = categorize(item.role?.name);
+      counts[category] += 1;
+    });
+
+    return Object.entries(counts)
+      .filter(([, value]) => value > 0)
+      .map(([name, value]) => ({
+        name,
+        value,
+        color: roleCategoryColors[name] ?? 'var(--electric-blue)'
+      }));
+  }, [usersState.data]);
 
   const quickActions = [
     {
@@ -127,68 +384,49 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
     },
     {
       type: 'vehicle',
-      message: 'Vehicle registration: KCA 123X',
-      time: '1 hour ago',
+      message: 'Vehicle KCA 123A added to fleet',
+      time: '25 minutes ago',
       status: 'approved',
       icon: Car
     },
     {
-      type: 'alert',
-      message: 'Insurance expiring for KBD 456Y',
-      time: '2 hours ago',
+      type: 'insurance',
+      message: 'Policy renewal required: KCB 456B',
+      time: '1 hour ago',
       status: 'warning',
-      icon: AlertTriangle
+      icon: Shield
     }
   ];
 
-  return (
-    <AdminLayout 
-      user={user} 
-      currentPage="admin/dashboard" 
-      onNavigate={onNavigate} 
-      onLogout={onLogout}
-    >
-      <div className="space-y-8">
-        {/* Welcome Section */}
-        <div className="bg-gradient-to-r from-[var(--neon-turquoise)]/10 to-[var(--neon-yellow)]/10 rounded-xl p-6 border border-[var(--neon-turquoise)]/20">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Welcome back, {user?.name}!
-          </h1>
-          <p className="text-gray-600">
-            Here's what's happening with your SACCO operations today.
-          </p>
-        </div>
+  const renderLoadingState = (label: string) => (
+    <div className="flex items-center justify-center h-[300px] text-sm text-gray-500">
+      Loading {label}...
+    </div>
+  );
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {stats.map((stat, index) => (
-            <Card key={index} className="relative overflow-hidden">
-              <CardContent className="p-6">
+  return (
+    <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="Admin Dashboard">
+      <div className="space-y-6">
+        {/* Top Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {stats.map((stat) => (
+            <Card key={stat.key} className="relative overflow-hidden">
+              <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${stat.color}`} />
+              <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600 mb-1">
-                      {stat.title}
-                    </p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {stat.value}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {stat.description}
-                    </p>
-                  </div>
-                  <div className={`p-3 rounded-lg bg-gradient-to-r ${stat.color}`}>
-                    <stat.icon className="h-6 w-6 text-white" />
+                  <CardTitle className="text-sm font-medium text-gray-500">{stat.title}</CardTitle>
+                  <div className="p-2 rounded-lg bg-gray-50">
+                    <stat.icon className="h-4 w-4 text-gray-500" />
                   </div>
                 </div>
-                <div className="flex items-center mt-4">
-                  <TrendingUp className="h-4 w-4 text-green-500 mr-1" />
-                  <span className="text-sm font-medium text-green-500">
-                    {stat.change}
-                  </span>
-                  <span className="text-sm text-gray-500 ml-1">
-                    from last month
-                  </span>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+                <div className="flex items-center text-sm text-gray-500">
+                  <TrendingUp className="h-4 w-4 mr-1 text-[var(--neon-turquoise)]" />
+                  <span>{stat.change}</span>
                 </div>
+                <p className="text-xs text-gray-400">{stat.description}</p>
               </CardContent>
             </Card>
           ))}
@@ -196,51 +434,69 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
 
         {/* Charts Section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Financial Activity Chart */}
           <Card>
             <CardHeader>
-              <CardTitle>Financial Activity (6 Months)</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Financial Activity (6 Months)</CardTitle>
+                <Button variant="ghost" size="icon" onClick={() => { loadLoans(); loadVehicles(); loadInsurance(); }} aria-label="Refresh financial data">
+                  <RefreshCcw className="h-4 w-4" />
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={financialData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip 
-                    formatter={(value) => [`KSh ${value.toLocaleString()}`, '']}
-                  />
-                  <Bar dataKey="loans" fill="var(--neon-turquoise)" name="Loans" />
-                  <Bar dataKey="savings" fill="var(--neon-yellow)" name="Savings" />
-                  <Bar dataKey="insurance" fill="var(--neon-orange)" name="Insurance" />
-                </BarChart>
-              </ResponsiveContainer>
+              {loansState.loading || vehiclesState.loading || insuranceState.loading ? (
+                renderLoadingState('financial data')
+              ) : (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={financialData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <Tooltip formatter={(value: number) => [`KSh ${value.toLocaleString()}`, '']} />
+                    <Bar dataKey="loans" fill="var(--neon-turquoise)" name="Loans" />
+                    <Bar dataKey="savings" fill="var(--neon-yellow)" name="Savings" />
+                    <Bar dataKey="insurance" fill="var(--neon-orange)" name="Insurance" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
 
-          {/* User Distribution Pie Chart */}
           <Card>
             <CardHeader>
-              <CardTitle>User Distribution</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>User Distribution</CardTitle>
+                <Button variant="ghost" size="icon" onClick={loadUsers} aria-label="Refresh user distribution">
+                  <RefreshCcw className="h-4 w-4" />
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={userRoleData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    dataKey="value"
-                    label={({ name, value }) => `${name}: ${value}`}
-                  >
-                    {userRoleData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+              {usersState.loading ? (
+                renderLoadingState('user distribution')
+              ) : userRoleData.length === 0 ? (
+                <div className="flex items-center justify-center h-[300px] text-sm text-gray-500">
+                  No user role data available.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={userRoleData}
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={100}
+                      dataKey="value"
+                      label={({ name, value }) => `${name}: ${value}`}
+                    >
+                      {userRoleData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: number) => [`${value} users`, '']} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -248,7 +504,12 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
         {/* Quick Actions */}
         <Card>
           <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Quick Actions</CardTitle>
+              <Button variant="ghost" size="icon" onClick={() => onNavigate('admin/users')}>
+                <FileText className="h-4 w-4" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -283,18 +544,28 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
             <div className="space-y-4">
               {recentActivities.map((activity, index) => (
                 <div key={index} className="flex items-center space-x-4 p-3 rounded-lg hover:bg-gray-50">
-                  <div className={`p-2 rounded-full ${
-                    activity.status === 'approved' ? 'bg-green-100' :
-                    activity.status === 'pending' ? 'bg-yellow-100' :
-                    activity.status === 'warning' ? 'bg-red-100' :
-                    'bg-blue-100'
-                  }`}>
-                    <activity.icon className={`h-4 w-4 ${
-                      activity.status === 'approved' ? 'text-green-600' :
-                      activity.status === 'pending' ? 'text-yellow-600' :
-                      activity.status === 'warning' ? 'text-red-600' :
-                      'text-blue-600'
-                    }`} />
+                  <div
+                    className={`p-2 rounded-full ${
+                      activity.status === 'approved'
+                        ? 'bg-green-100'
+                        : activity.status === 'pending'
+                          ? 'bg-yellow-100'
+                          : activity.status === 'warning'
+                            ? 'bg-red-100'
+                            : 'bg-blue-100'
+                    }`}
+                  >
+                    <activity.icon
+                      className={`h-4 w-4 ${
+                        activity.status === 'approved'
+                          ? 'text-green-600'
+                          : activity.status === 'pending'
+                            ? 'text-yellow-600'
+                            : activity.status === 'warning'
+                              ? 'text-red-600'
+                              : 'text-blue-600'
+                      }`}
+                    />
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-900">
@@ -302,12 +573,17 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
                     </p>
                     <p className="text-xs text-gray-500">{activity.time}</p>
                   </div>
-                  <Badge variant={
-                    activity.status === 'approved' ? 'default' :
-                    activity.status === 'pending' ? 'secondary' :
-                    activity.status === 'warning' ? 'destructive' :
-                    'outline'
-                  }>
+                  <Badge
+                    variant={
+                      activity.status === 'approved'
+                        ? 'default'
+                        : activity.status === 'pending'
+                          ? 'secondary'
+                          : activity.status === 'warning'
+                            ? 'destructive'
+                            : 'outline'
+                    }
+                  >
                     {activity.status === 'approved' && <CheckCircle className="h-3 w-3 mr-1" />}
                     {activity.status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
                     {activity.status === 'warning' && <AlertTriangle className="h-3 w-3 mr-1" />}
@@ -322,3 +598,5 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
     </AdminLayout>
   );
 }
+
+
