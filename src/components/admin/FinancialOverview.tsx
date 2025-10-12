@@ -1,27 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '../ui/table';
-import { 
-  DollarSign, 
-  PiggyBank, 
-  Shield, 
-  TrendingUp, 
-  TrendingDown,
-  Calendar,
-  User,
-  FileText
-} from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Calendar, DollarSign, Loader2, PiggyBank, Shield, User } from 'lucide-react';
+import {
+  DashboardInsuranceResponse,
+  DashboardLoansResponse,
+  DashboardSavingsResponse,
+  fetchDashboardInsurance,
+  fetchDashboardLoans,
+  fetchDashboardSavings
+} from '../../services/admin';
 
 interface FinancialOverviewProps {
   user: {
@@ -33,257 +26,430 @@ interface FinancialOverviewProps {
   onLogout: () => void;
 }
 
-// Mock data
-const loansSummary = {
-  totalLoans: 2400000,
-  activeLoans: 45,
-  defaultedLoans: 3,
-  pendingApplications: 12,
-  monthlyCollection: 180000
-};
+const normalizeSavingsTypeKey = (type: string | null | undefined) => type ?? 'UNSPECIFIED';
 
-const savingsSummary = {
-  totalSavings: 4800000,
-  activeAccounts: 156,
-  monthlyDeposits: 320000,
-  averageBalance: 30769,
-  newAccounts: 8
-};
+const toTitleCase = (value: string) =>
+  value
+    .toLowerCase()
+    .split(' ')
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 
-const insuranceSummary = {
-  totalPremiums: 180000,
-  activePolicies: 134,
-  expiringPolicies: 12,
-  monthlyPremiums: 45000,
-  claims: 2
-};
-
-const recentLoans = [
-  {
-    id: 'L001',
-    member: 'James Mutua',
-    amount: 50000,
-    type: 'Normal',
-    status: 'Active',
-    disbursed: '2024-01-10',
-    nextPayment: '2024-02-10',
-    balance: 35000
-  },
-  {
-    id: 'L002',
-    member: 'Mary Wanjiku',
-    amount: 25000,
-    type: 'Emergency',
-    status: 'Active',
-    disbursed: '2024-01-08',
-    nextPayment: '2024-02-08',
-    balance: 20000
-  },
-  {
-    id: 'L003',
-    member: 'Peter Ochieng',
-    amount: 100000,
-    type: 'Normal',
-    status: 'Pending',
-    disbursed: null,
-    nextPayment: null,
-    balance: 100000
+const labelForSavingsType = (key: string) => {
+  if (!key || key === 'UNSPECIFIED') {
+    return 'Unspecified';
   }
-];
-
-const recentSavings = [
-  {
-    id: 'S001',
-    member: 'James Mutua',
-    accountType: 'Regular Savings',
-    balance: 45000,
-    lastDeposit: '2024-01-15',
-    depositAmount: 5000,
-    monthlyTarget: 10000
-  },
-  {
-    id: 'S002',
-    member: 'Catherine Muthoni',
-    accountType: 'Share Capital',
-    balance: 25000,
-    lastDeposit: '2024-01-12',
-    depositAmount: 2500,
-    monthlyTarget: 5000
-  },
-  {
-    id: 'S003',
-    member: 'Grace Akinyi',
-    accountType: 'Emergency Fund',
-    balance: 15000,
-    lastDeposit: '2024-01-14',
-    depositAmount: 3000,
-    monthlyTarget: 7500
-  }
-];
-
-const recentInsurance = [
-  {
-    id: 'I001',
-    member: 'James Mutua',
-    vehicle: 'KCA 123X',
-    policyType: 'Comprehensive',
-    premium: 15000,
-    expiry: '2024-06-15',
-    status: 'Active'
-  },
-  {
-    id: 'I002',
-    member: 'Catherine Muthoni',
-    vehicle: 'KBD 456Y',
-    policyType: 'Third Party',
-    premium: 8000,
-    expiry: '2024-01-10',
-    status: 'Expired'
-  },
-  {
-    id: 'I003',
-    member: 'Samuel Kiprop',
-    vehicle: 'KCE 789Z',
-    policyType: 'Comprehensive',
-    premium: 12000,
-    expiry: '2024-08-20',
-    status: 'Active'
-  }
-];
+  return toTitleCase(key.replace(/[_-]/g, ' '));
+};
 
 export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverviewProps) {
   const [activeTab, setActiveTab] = useState('loans');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [loansData, setLoansData] = useState<DashboardLoansResponse | null>(null);
+  const [savingsData, setSavingsData] = useState<DashboardSavingsResponse | null>(null);
+  const [insuranceData, setInsuranceData] = useState<DashboardInsuranceResponse | null>(null);
+  const [selectedSavingsType, setSelectedSavingsType] = useState<string>('ALL');
 
-  const formatCurrency = (amount: number) => {
-    return `KSh ${amount.toLocaleString()}`;
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const [loans, savings, insurance] = await Promise.all([
+          fetchDashboardLoans(),
+          fetchDashboardSavings(),
+          fetchDashboardInsurance()
+        ]);
+
+        if (!isMounted) return;
+        setLoansData(loans);
+        setSavingsData(savings);
+        setInsuranceData(insurance);
+      } catch (err) {
+        if (!isMounted) return;
+        if (err instanceof Error) {
+          setError(err.message);
+        } else {
+          setError('Failed to load financial data.');
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!savingsData) {
+      setSelectedSavingsType('ALL');
+      return;
+    }
+
+    const availableTypes = Object.keys(savingsData.totals.byType ?? {});
+    if (availableTypes.length === 0) {
+      setSelectedSavingsType('ALL');
+      return;
+    }
+
+    if (selectedSavingsType !== 'ALL' && !availableTypes.includes(selectedSavingsType)) {
+      setSelectedSavingsType(availableTypes[0]);
+    }
+  }, [savingsData, selectedSavingsType]);
+
+  const currencyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat('en-KE', {
+        style: 'currency',
+        currency: 'KES',
+        maximumFractionDigits: 0
+      }),
+    []
+  );
+
+  const dateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat('en-KE', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      }),
+    []
+  );
+
+  const formatCurrency = (amount: number | null | undefined) => {
+    if (amount === null || amount === undefined) {
+      return 'N/A';
+    }
+    return currencyFormatter.format(amount);
   };
 
+  const formatNumber = (value: number | null | undefined) => {
+    if (value === null || value === undefined) {
+      return 'N/A';
+    }
+    return value.toLocaleString();
+  };
+
+  const formatDate = (value: string | null | undefined) => {
+    if (!value) {
+      return 'N/A';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return 'N/A';
+    }
+    return dateFormatter.format(date);
+  };
+
+  const accountTypeLabel = (type: string | null | undefined) => labelForSavingsType(normalizeSavingsTypeKey(type));
+
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Active':
-        return 'bg-green-100 text-green-800';
-      case 'Pending':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'Expired':
-        return 'bg-red-100 text-red-800';
-      case 'Defaulted':
-        return 'bg-red-100 text-red-800';
+    const normalized = status.toUpperCase();
+    switch (normalized) {
+      case 'ACTIVE':
+      case 'APPROVED':
+      case 'DISBURSED':
+      case 'COMPLETED':
+        return 'bg-green-100 text-green-700';
+      case 'PENDING':
+      case 'IN PROGRESS':
+        return 'bg-yellow-100 text-yellow-700';
+      case 'EXPIRED':
+      case 'DEFAULTED':
+      case 'REJECTED':
+      case 'FAILED':
+        return 'bg-red-100 text-red-700';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 text-gray-700';
     }
   };
 
+  const loansSummary = useMemo(() => {
+    const totals = loansData?.totals;
+    if (!totals) {
+      return {
+        totalAmount: null,
+        outstanding: null,
+        disbursed: 0,
+        pending: 0,
+        defaulted: 0,
+        total: 0
+      };
+    }
+
+    return {
+      totalAmount: totals.sum,
+      outstanding: totals.outstanding,
+      disbursed: totals.byStatus?.DISBURSED ?? 0,
+      pending: totals.byStatus?.PENDING ?? 0,
+      defaulted: totals.byStatus?.DEFAULTED ?? 0,
+      total: totals.total
+    };
+  }, [loansData]);
+
+  const savingsSummary = useMemo(() => {
+    const totals = savingsData?.totals;
+    if (!totals) {
+      return {
+        totalBalance: null,
+        totalAccounts: 0,
+        monthlyTarget: null,
+        activeRecently: 0,
+        averageBalance: null,
+        byTypeEntries: [] as Array<[string, { count: number; balance: number }]>
+      };
+    }
+
+    const averageBalance = totals.total > 0 ? totals.sum / totals.total : null;
+    const byTypeEntries = Object.entries(totals.byType ?? {});
+
+    return {
+      totalBalance: totals.sum,
+      totalAccounts: totals.total,
+      monthlyTarget: totals.monthlyTarget,
+      activeRecently: totals.activeRecently,
+      averageBalance,
+      byTypeEntries
+    };
+  }, [savingsData]);
+
+  const insuranceSummary = useMemo(() => {
+    const totals = insuranceData?.totals;
+    const premiumPool =
+      insuranceData?.items.reduce((sum, policy) => sum + (policy.premiumAmount ?? 0), 0) ?? null;
+
+    if (!totals) {
+      return {
+        total: 0,
+        active: 0,
+        pending: 0,
+        expired: 0,
+        expiringSoon: 0,
+        premiumPool
+      };
+    }
+
+    return {
+      total: totals.total,
+      active: totals.byStatus?.ACTIVE ?? 0,
+      pending: totals.byStatus?.PENDING ?? 0,
+      expired: totals.byStatus?.EXPIRED ?? 0,
+      expiringSoon: totals.expiringSoon,
+      premiumPool
+    };
+  }, [insuranceData]);
+
+  const savingsTypeOptions = useMemo(
+    () =>
+      savingsSummary.byTypeEntries
+        .map(([key, metrics]) => ({
+          key,
+          label: labelForSavingsType(key),
+          count: metrics.count,
+          balance: metrics.balance
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [savingsSummary.byTypeEntries]
+  );
+
+  const recentLoans = useMemo(() => {
+    if (!loansData) return [];
+    return loansData.items.slice(0, 8);
+  }, [loansData]);
+
+  const recentInsurance = useMemo(() => {
+    if (!insuranceData) return [];
+    return insuranceData.items.slice(0, 8);
+  }, [insuranceData]);
+
+  const filteredSavings = useMemo(() => {
+    if (!savingsData) return [];
+    const baseItems =
+      selectedSavingsType === 'ALL'
+        ? savingsData.items
+        : savingsData.items.filter(
+            account => normalizeSavingsTypeKey(account.accountType) === selectedSavingsType
+          );
+    return baseItems.slice(0, 8);
+  }, [savingsData, selectedSavingsType]);
+
+  const isLoading = loading;
+
+  const renderLoadingRow = (colSpan: number) => (
+    <TableRow>
+      <TableCell colSpan={colSpan}>
+        <div className="flex items-center justify-center py-8 text-sm text-gray-500">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Loading data...
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+
+  const renderEmptyRow = (colSpan: number, message: string) => (
+    <TableRow>
+      <TableCell colSpan={colSpan} className="py-8 text-center text-sm text-gray-500">
+        {message}
+      </TableCell>
+    </TableRow>
+  );
+
   return (
-    <AdminLayout 
-      user={user} 
-      currentPage="admin/financials" 
-      onNavigate={onNavigate} 
-      onLogout={onLogout}
-    >
+    <AdminLayout user={user} currentPage="admin/financial-overview" onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Financial Overview</h1>
-            <p className="text-gray-600 mt-1">Monitor loans, savings, and insurance activities</p>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Financial Overview</h1>
+          <p className="text-sm text-gray-600">
+            Track loans, savings, and insurance performance across the SACCO in real time.
+          </p>
+        </div>
+
+        {error && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+            {error}
           </div>
-          <Button 
-            onClick={() => onNavigate('admin/reports/financials')}
-            className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] hover:opacity-90"
-          >
-            <FileText className="h-4 w-4 mr-2" />
-            Financial Reports
-          </Button>
+        )}
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Loan Portfolio</CardTitle>
+              <DollarSign className="h-5 w-5 text-[var(--neon-turquoise)]" />
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="flex items-center text-sm text-gray-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading metrics...
+                </div>
+              ) : (
+                <div className="space-y-3 text-sm text-gray-600">
+                  <div className="flex justify-between">
+                    <span>Total Value</span>
+                    <span className="font-medium text-gray-900">{formatCurrency(loansSummary.totalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Disbursed Loans</span>
+                    <span className="font-medium text-gray-900">{formatNumber(loansSummary.disbursed)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Outstanding Amount</span>
+                    <span className="font-medium text-orange-600">{formatCurrency(loansSummary.outstanding)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Pending Applications</span>
+                    <span className="font-medium text-blue-600">{formatNumber(loansSummary.pending)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Defaulted Loans</span>
+                    <span className="font-medium text-red-600">{formatNumber(loansSummary.defaulted)}</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Savings Performance</CardTitle>
+              <PiggyBank className="h-5 w-5 text-[var(--neon-turquoise)]" />
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="flex items-center text-sm text-gray-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading metrics...
+                </div>
+              ) : (
+                <div className="space-y-3 text-sm text-gray-600">
+                  <div className="flex justify-between">
+                    <span>Total Balance</span>
+                    <span className="font-medium text-gray-900">{formatCurrency(savingsSummary.totalBalance)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Active Accounts</span>
+                    <span className="font-medium text-gray-900">{formatNumber(savingsSummary.totalAccounts)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Monthly Target</span>
+                    <span className="font-medium text-green-600">{formatCurrency(savingsSummary.monthlyTarget)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Active (30 days)</span>
+                    <span className="font-medium text-blue-600">{formatNumber(savingsSummary.activeRecently)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Average Balance</span>
+                    <span className="font-medium text-gray-900">{formatCurrency(savingsSummary.averageBalance)}</span>
+                  </div>
+
+                  {savingsSummary.byTypeEntries.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                      <p className="text-xs font-semibold uppercase text-gray-500">Account Mix</p>
+                      {savingsSummary.byTypeEntries.slice(0, 4).map(([typeKey, metrics]) => (
+                        <div key={typeKey} className="flex justify-between">
+                          <span>{labelForSavingsType(typeKey)}</span>
+                          <span className="font-medium">
+                            {formatNumber(metrics.count)} accounts | {formatCurrency(metrics.balance)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Insurance Coverage</CardTitle>
+              <Shield className="h-5 w-5 text-[var(--neon-turquoise)]" />
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="flex items-center text-sm text-gray-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading metrics...
+                </div>
+              ) : (
+                <div className="space-y-3 text-sm text-gray-600">
+                  <div className="flex justify-between">
+                    <span>Total Policies</span>
+                    <span className="font-medium text-gray-900">{formatNumber(insuranceSummary.total)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Active Policies</span>
+                    <span className="font-medium text-gray-900">{formatNumber(insuranceSummary.active)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Pending Policies</span>
+                    <span className="font-medium text-blue-600">{formatNumber(insuranceSummary.pending)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Expiring Soon</span>
+                    <span className="font-medium text-orange-600">{formatNumber(insuranceSummary.expiringSoon)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Premium Pool</span>
+                    <span className="font-medium text-gray-900">{formatCurrency(insuranceSummary.premiumPool)}</span>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Loans Summary */}
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-900">Loans Overview</h3>
-                <DollarSign className="h-6 w-6 text-[var(--neon-turquoise)]" />
-              </div>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Total Portfolio</span>
-                  <span className="font-medium">{formatCurrency(loansSummary.totalLoans)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Active Loans</span>
-                  <span className="font-medium">{loansSummary.activeLoans}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Monthly Collection</span>
-                  <span className="font-medium text-green-600">{formatCurrency(loansSummary.monthlyCollection)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Defaulted</span>
-                  <span className="font-medium text-red-600">{loansSummary.defaultedLoans}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Savings Summary */}
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-900">Savings Overview</h3>
-                <PiggyBank className="h-6 w-6 text-[var(--neon-yellow)]" />
-              </div>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Total Savings</span>
-                  <span className="font-medium">{formatCurrency(savingsSummary.totalSavings)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Active Accounts</span>
-                  <span className="font-medium">{savingsSummary.activeAccounts}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Monthly Deposits</span>
-                  <span className="font-medium text-green-600">{formatCurrency(savingsSummary.monthlyDeposits)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Avg. Balance</span>
-                  <span className="font-medium">{formatCurrency(savingsSummary.averageBalance)}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Insurance Summary */}
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-gray-900">Insurance Overview</h3>
-                <Shield className="h-6 w-6 text-[var(--neon-orange)]" />
-              </div>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Total Premiums</span>
-                  <span className="font-medium">{formatCurrency(insuranceSummary.totalPremiums)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Active Policies</span>
-                  <span className="font-medium">{insuranceSummary.activePolicies}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Monthly Premiums</span>
-                  <span className="font-medium text-green-600">{formatCurrency(insuranceSummary.monthlyPremiums)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Expiring Soon</span>
-                  <span className="font-medium text-red-600">{insuranceSummary.expiringPolicies}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Detailed Tables */}
         <Card>
           <CardHeader>
             <CardTitle>Financial Details</CardTitle>
@@ -296,14 +462,10 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
                 <TabsTrigger value="insurance">Insurance</TabsTrigger>
               </TabsList>
 
-              {/* Loans Tab */}
               <TabsContent value="loans" className="mt-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-semibold text-gray-900">Recent Loan Activities</h3>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => onNavigate('admin/loans')}
-                  >
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-900">Recent Loan Activity</h3>
+                  <Button variant="outline" onClick={() => onNavigate('admin/loans')}>
                     View All Loans
                   </Button>
                 </div>
@@ -314,56 +476,72 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
                       <TableHead>Amount</TableHead>
                       <TableHead>Type</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Disbursed</TableHead>
-                      <TableHead>Balance</TableHead>
+                      <TableHead>Applied On</TableHead>
+                      <TableHead>Approved On</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentLoans.map((loan) => (
-                      <TableRow key={loan.id}>
-                        <TableCell>
-                          <div className="flex items-center">
-                            <User className="h-4 w-4 mr-2 text-gray-400" />
-                            {loan.member}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {formatCurrency(loan.amount)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{loan.type}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(loan.status)}>
-                            {loan.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {loan.disbursed ? (
-                            <div className="flex items-center text-sm text-gray-600">
-                              <Calendar className="h-3 w-3 mr-1" />
-                              {loan.disbursed}
-                            </div>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {formatCurrency(loan.balance)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {isLoading
+                      ? renderLoadingRow(6)
+                      : recentLoans.length === 0
+                      ? renderEmptyRow(6, 'No loan records available.')
+                      : recentLoans.map(loan => (
+                          <TableRow key={loan.id}>
+                            <TableCell>
+                              <div className="flex items-center">
+                                <User className="mr-2 h-4 w-4 text-gray-400" />
+                                {loan.applicant?.name ?? 'Unknown member'}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-medium">{formatCurrency(loan.amount)}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{loan.type}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={getStatusColor(loan.status)}>{loan.status}</Badge>
+                            </TableCell>
+                            <TableCell>{formatDate(loan.applicationDate)}</TableCell>
+                            <TableCell>
+                              {loan.approvedAt ? (
+                                <div className="flex items-center text-sm text-gray-600">
+                                  <Calendar className="mr-1 h-3 w-3" />
+                                  {formatDate(loan.approvedAt)}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">N/A</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
                   </TableBody>
                 </Table>
               </TabsContent>
 
-              {/* Savings Tab */}
               <TabsContent value="savings" className="mt-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-semibold text-gray-900">Recent Savings Activities</h3>
-                  <Button variant="outline">
-                    View All Accounts
-                  </Button>
+                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <h3 className="font-semibold text-gray-900">Recent Savings Activity</h3>
+                  <div className="flex items-center gap-3">
+                    <Select
+                      value={selectedSavingsType}
+                      onValueChange={setSelectedSavingsType}
+                      disabled={savingsTypeOptions.length === 0}
+                    >
+                      <SelectTrigger className="w-56">
+                        <SelectValue placeholder="All Account Types" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Account Types</SelectItem>
+                        {savingsTypeOptions.map(option => (
+                          <SelectItem key={option.key} value={option.key}>
+                            {option.label} ({formatNumber(option.count)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" onClick={() => onNavigate('admin/savings')}>
+                      View All Accounts
+                    </Button>
+                  </div>
                 </div>
                 <Table>
                   <TableHeader>
@@ -371,49 +549,50 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
                       <TableHead>Member</TableHead>
                       <TableHead>Account Type</TableHead>
                       <TableHead>Balance</TableHead>
-                      <TableHead>Last Deposit</TableHead>
-                      <TableHead>Amount</TableHead>
                       <TableHead>Monthly Target</TableHead>
+                      <TableHead>Last Deposit</TableHead>
+                      <TableHead>Vehicle</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentSavings.map((saving) => (
-                      <TableRow key={saving.id}>
-                        <TableCell>
-                          <div className="flex items-center">
-                            <User className="h-4 w-4 mr-2 text-gray-400" />
-                            {saving.member}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{saving.accountType}</Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {formatCurrency(saving.balance)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Calendar className="h-3 w-3 mr-1" />
-                            {saving.lastDeposit}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium text-green-600">
-                          {formatCurrency(saving.depositAmount)}
-                        </TableCell>
-                        <TableCell>
-                          {formatCurrency(saving.monthlyTarget)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {isLoading
+                      ? renderLoadingRow(6)
+                      : filteredSavings.length === 0
+                      ? renderEmptyRow(6, 'No savings accounts found.')
+                      : filteredSavings.map(account => (
+                          <TableRow key={account.id}>
+                            <TableCell>
+                              <div className="flex items-center">
+                                <User className="mr-2 h-4 w-4 text-gray-400" />
+                                {account.user?.name ?? 'Unknown member'}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{accountTypeLabel(account.accountType)}</Badge>
+                            </TableCell>
+                            <TableCell className="font-medium">{formatCurrency(account.balance)}</TableCell>
+                            <TableCell>{formatCurrency(account.monthlyTarget)}</TableCell>
+                            <TableCell>
+                              {account.lastDeposit ? (
+                                <div className="flex items-center text-sm text-gray-600">
+                                  <Calendar className="mr-1 h-3 w-3" />
+                                  {formatDate(account.lastDeposit)}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">N/A</span>
+                              )}
+                            </TableCell>
+                            <TableCell>{account.vehicle?.plateNumber ?? 'N/A'}</TableCell>
+                          </TableRow>
+                        ))}
                   </TableBody>
                 </Table>
               </TabsContent>
 
-              {/* Insurance Tab */}
               <TabsContent value="insurance" className="mt-6">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="font-semibold text-gray-900">Recent Insurance Activities</h3>
-                  <Button variant="outline">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-900">Recent Insurance Activity</h3>
+                  <Button variant="outline" onClick={() => onNavigate('admin/insurance')}>
                     View All Policies
                   </Button>
                 </div>
@@ -429,36 +608,40 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {recentInsurance.map((insurance) => (
-                      <TableRow key={insurance.id}>
-                        <TableCell>
-                          <div className="flex items-center">
-                            <User className="h-4 w-4 mr-2 text-gray-400" />
-                            {insurance.member}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {insurance.vehicle}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{insurance.policyType}</Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {formatCurrency(insurance.premium)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Calendar className="h-3 w-3 mr-1" />
-                            {insurance.expiry}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={getStatusColor(insurance.status)}>
-                            {insurance.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {isLoading
+                      ? renderLoadingRow(6)
+                      : recentInsurance.length === 0
+                      ? renderEmptyRow(6, 'No insurance policies found.')
+                      : recentInsurance.map(policy => (
+                          <TableRow key={policy.id}>
+                            <TableCell>
+                              <div className="flex items-center">
+                                <User className="mr-2 h-4 w-4 text-gray-400" />
+                                {policy.vehicle?.owner?.name ?? 'Unknown member'}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              {policy.vehicle?.plateNumber ?? 'N/A'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{policy.policyType ?? 'N/A'}</Badge>
+                            </TableCell>
+                            <TableCell className="font-medium">{formatCurrency(policy.premiumAmount)}</TableCell>
+                            <TableCell>
+                              {policy.expiryDate ? (
+                                <div className="flex items-center text-sm text-gray-600">
+                                  <Calendar className="mr-1 h-3 w-3" />
+                                  {formatDate(policy.expiryDate)}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400">N/A</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={getStatusColor(policy.status)}>{policy.status}</Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
                   </TableBody>
                 </Table>
               </TabsContent>

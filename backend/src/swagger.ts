@@ -29,6 +29,7 @@ const swaggerDocument = {
     { name: 'Auth', description: 'Authentication endpoints' },
     { name: 'Admin Dashboard', description: 'Aggregated dashboards for administrators' },
     { name: 'Admin Users', description: 'Administrative member management' },
+    { name: 'Admin Fleet', description: 'Administrative fleet management operations' },
     { name: 'Matatus', description: 'Vehicle and route management' },
     { name: 'Finance', description: 'Financial dashboards and reporting' }
   ],
@@ -143,12 +144,27 @@ const swaggerDocument = {
         properties: {
           id: { type: 'string' },
           amount: { type: ['number', 'null'] },
+          purpose: { type: ['string', 'null'] },
+          savingsAtApplication: { type: ['number', 'null'] },
+          creditScore: { type: ['integer', 'null'] },
+          monthlyIncome: { type: ['number', 'null'] },
+          existingLoans: { type: ['number', 'null'] },
+          urgency: { type: ['string', 'null'] },
+          expectedRepaymentDate: { type: ['string', 'null'], format: 'date-time' },
           statusCode: {
             type: 'string',
             enum: ['PENDING', 'APPROVED', 'REJECTED', 'DISBURSED', 'REPAID', 'DEFAULTED']
           },
-          typeCode: { type: 'string' },
+          typeCode: { type: 'string', enum: ['NORMAL', 'EMERGENCY'] },
           applicationDate: { type: 'string', format: 'date-time' },
+          approvedAt: { type: ['string', 'null'], format: 'date-time' },
+          approvedBy: {
+            type: ['object', 'null'],
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' }
+            }
+          },
           applicant: {
             type: ['object', 'null'],
             properties: {
@@ -163,8 +179,35 @@ const swaggerDocument = {
               id: { type: 'string' },
               plateNumber: { type: 'string' }
             }
+          },
+          guarantors: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AdminLoanGuarantor' }
           }
         }
+      },
+      AdminLoanGuarantor: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          name: { type: 'string' },
+          phone: { type: ['string', 'null'] }
+        }
+      },
+      AdminLoanUpdateRequest: {
+        type: 'object',
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['PENDING', 'APPROVED', 'REJECTED', 'DISBURSED', 'REPAID', 'DEFAULTED']
+          },
+          creditScore: { type: ['integer', 'null'] },
+          monthlyIncome: { type: ['number', 'null'] },
+          existingLoans: { type: ['number', 'null'] },
+          urgency: { type: ['string', 'null'] },
+          expectedRepaymentDate: { type: ['string', 'null'], format: 'date-time' }
+        },
+        additionalProperties: false
       },
       AdminInsuranceSummary: {
         type: 'object',
@@ -226,6 +269,140 @@ const swaggerDocument = {
             type: 'string',
             enum: ['ACTIVE', 'PENDING', 'SUSPENDED', 'INACTIVE'],
             example: 'SUSPENDED'
+          }
+        }
+      },
+      AdminVehicleListResponse: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/AdminVehicleSummary' }
+          },
+          total: { type: 'integer' },
+          appliedFilters: {
+            type: 'object',
+            properties: {
+              status: { type: ['string', 'null'] },
+              registrationStatus: { type: ['string', 'null'] },
+              insuranceStatus: { type: ['string', 'null'] },
+              ownerId: { type: ['string', 'null'] },
+              driverId: { type: ['string', 'null'] },
+              routeId: { type: ['string', 'null'] },
+              search: { type: ['string', 'null'] }
+            }
+          }
+        }
+      },
+      CreateAdminVehicleRequest: {
+        type: 'object',
+        required: ['ownerId', 'plateNumber'],
+        properties: {
+          ownerId: { type: 'string', format: 'uuid' },
+          plateNumber: { type: 'string' },
+          model: { type: 'string' },
+          vehicleType: { type: 'string' },
+          capacity: { type: 'integer' },
+          chassisNumber: { type: 'string' },
+          engineNumber: { type: 'string' },
+          yearOfManufacture: { type: 'integer' },
+          routeId: { type: 'string', format: 'uuid' },
+          driverId: { type: 'string', format: 'uuid' },
+          status: { type: 'string', enum: ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'DECOMMISSIONED'] },
+          registrationStatus: { type: 'string', enum: ['VALID', 'EXPIRED', 'PENDING'] },
+          insuranceStatus: { type: 'string', enum: ['ACTIVE', 'EXPIRED', 'PENDING'] },
+          insuranceProvider: { type: 'string' },
+          policyType: { type: 'string' },
+          insuranceExpiry: { type: 'string', format: 'date-time' },
+          registrationExpiry: { type: 'string', format: 'date-time' },
+          premium: { type: 'number' }
+        }
+      },
+      UpdateAdminVehicleRequest: {
+        type: 'object',
+        description: 'Any subset of vehicle fields to update',
+        properties: {
+          ownerId: { type: 'string', format: 'uuid' },
+          plateNumber: { type: 'string' },
+          model: { type: ['string', 'null'] },
+          vehicleType: { type: ['string', 'null'] },
+          capacity: { type: ['integer', 'null'] },
+          chassisNumber: { type: ['string', 'null'] },
+          engineNumber: { type: ['string', 'null'] },
+          yearOfManufacture: { type: ['integer', 'null'] },
+          routeId: { type: ['string', 'null'], format: 'uuid' },
+          driverId: { type: ['string', 'null'], format: 'uuid' },
+          status: { type: 'string', enum: ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'DECOMMISSIONED'] },
+          registrationStatus: { type: 'string', enum: ['VALID', 'EXPIRED', 'PENDING'] },
+          insuranceStatus: { type: 'string', enum: ['ACTIVE', 'EXPIRED', 'PENDING'] },
+          insuranceProvider: { type: ['string', 'null'] },
+          policyType: { type: ['string', 'null'] },
+          insuranceExpiry: { type: ['string', 'null'], format: 'date-time' },
+          registrationExpiry: { type: ['string', 'null'], format: 'date-time' },
+          premium: { type: ['number', 'null'] }
+        }
+      },
+      AdminAssignDriverRequest: {
+        type: 'object',
+        required: ['driverId'],
+        properties: {
+          driverId: { type: 'string', format: 'uuid' },
+          assignedAt: { type: ['string', 'null'], format: 'date-time' }
+        }
+      },
+      AdminDriverAssignmentResponse: {
+        type: 'object',
+        properties: {
+          vehicle: { $ref: '#/components/schemas/AdminVehicleSummary' },
+          assignment: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              vehicleId: { type: 'string' },
+              driverId: { type: 'string' },
+              assignedAt: { type: 'string', format: 'date-time' }
+            }
+          }
+        }
+      },
+      AdminInsurancePaymentRequest: {
+        type: 'object',
+        required: ['amount'],
+        properties: {
+          amount: { type: 'number' },
+          paymentDate: { type: ['string', 'null'], format: 'date-time' },
+          startDate: { type: ['string', 'null'], format: 'date-time' },
+          expiryDate: { type: ['string', 'null'], format: 'date-time' },
+          provider: { type: ['string', 'null'] },
+          policyType: { type: ['string', 'null'] },
+          mpesaReference: { type: ['string', 'null'] }
+        }
+      },
+      AdminInsurancePaymentResponse: {
+        type: 'object',
+        properties: {
+          vehicle: { $ref: '#/components/schemas/AdminVehicleSummary' },
+          payment: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              paymentDate: { type: 'string', format: 'date-time' },
+              totalAmount: { type: 'number' },
+              status: { type: 'string', enum: ['PENDING', 'COMPLETED', 'FAILED'] },
+              mpesaReference: { type: ['string', 'null'] }
+            }
+          },
+          policy: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              provider: { type: ['string', 'null'] },
+              policyType: { type: ['string', 'null'] },
+              premiumAmount: { type: ['number', 'null'] },
+              startDate: { type: ['string', 'null'], format: 'date-time' },
+              expiryDate: { type: ['string', 'null'], format: 'date-time' },
+              status: { type: 'string', enum: ['ACTIVE', 'EXPIRED', 'PENDING'] }
+            }
           }
         }
       },
@@ -374,6 +551,50 @@ const swaggerDocument = {
         }
       }
     },
+    '/api/admin/dashboard/savings': {
+      get: {
+        tags: ['Admin Dashboard'],
+        summary: 'Get aggregated savings metrics and summaries',
+        security: [{ BearerAuth: [] }],
+        responses: {
+          '200': {
+            description: 'Savings dashboard data',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    items: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/AdminSavingsSummary' }
+                    },
+                    totals: {
+                      type: 'object',
+                      properties: {
+                        total: { type: 'integer' },
+                        sum: { type: 'number' },
+                        monthlyTarget: { type: 'number' },
+                        activeRecently: { type: 'integer' },
+                        byType: {
+                          type: 'object',
+                          additionalProperties: {
+                            type: 'object',
+                            properties: {
+                              count: { type: 'integer' },
+                              balance: { type: 'number' }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     '/api/admin/dashboard/loans': {
       get: {
         tags: ['Admin Dashboard'],
@@ -444,6 +665,393 @@ const swaggerDocument = {
               }
             }
           }
+        }
+      }
+    },
+    '/api/admin/fleet/vehicles': {
+      get: {
+        tags: ['Admin Fleet'],
+        summary: 'List vehicles with optional filters',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'status',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['ACTIVE', 'INACTIVE', 'MAINTENANCE', 'DECOMMISSIONED']
+            }
+          },
+          {
+            name: 'registrationStatus',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['VALID', 'EXPIRED', 'PENDING']
+            }
+          },
+          {
+            name: 'insuranceStatus',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['ACTIVE', 'EXPIRED', 'PENDING']
+            }
+          },
+          {
+            name: 'ownerId',
+            in: 'query',
+            schema: { type: 'string', format: 'uuid' }
+          },
+          {
+            name: 'driverId',
+            in: 'query',
+            schema: { type: 'string', format: 'uuid' }
+          },
+          {
+            name: 'routeId',
+            in: 'query',
+            schema: { type: 'string', format: 'uuid' }
+          },
+          {
+            name: 'search',
+            in: 'query',
+            schema: { type: 'string' },
+            description: 'Matches plate number, model, owner or driver name'
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Vehicle list',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminVehicleListResponse' }
+              }
+            }
+          }
+        }
+      },
+      AdminSavingsSummary: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' },
+          userId: { type: 'string' },
+          vehicleId: { type: ['string', 'null'] },
+          accountType: { type: ['string', 'null'] },
+          balance: { type: ['number', 'null'] },
+          monthlyTarget: { type: ['number', 'null'] },
+          lastDeposit: { type: ['string', 'null'], format: 'date-time' },
+          createdAt: { type: 'string', format: 'date-time' },
+          user: {
+            type: ['object', 'null'],
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              phone: { type: ['string', 'null'] }
+            }
+          },
+          vehicle: {
+            type: ['object', 'null'],
+            properties: {
+              id: { type: 'string' },
+              plateNumber: { type: 'string' }
+            }
+          }
+        }
+      },
+      post: {
+        tags: ['Admin Fleet'],
+        summary: 'Create a new vehicle for a member',
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/CreateAdminVehicleRequest' }
+            }
+          }
+        },
+        responses: {
+          '201': {
+            description: 'Vehicle created successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminVehicleSummary' }
+              }
+            }
+          },
+          '400': { description: 'Validation error' },
+          '404': { description: 'Related record not found' },
+          '409': { description: 'Vehicle with the same plate number already exists' }
+        }
+      }
+    },
+    '/api/admin/fleet/vehicles/{vehicleId}': {
+      get: {
+        tags: ['Admin Fleet'],
+        summary: 'Get a single vehicle summary',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'vehicleId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Vehicle summary',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminVehicleSummary' }
+              }
+            }
+          },
+          '404': { description: 'Vehicle not found' }
+        }
+      },
+      patch: {
+        tags: ['Admin Fleet'],
+        summary: 'Update vehicle details',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'vehicleId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/UpdateAdminVehicleRequest' }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Updated vehicle',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminVehicleSummary' }
+              }
+            }
+          },
+          '400': { description: 'Validation error' },
+          '404': { description: 'Vehicle not found' },
+          '409': { description: 'Vehicle with the same plate number already exists' }
+        }
+      },
+      delete: {
+        tags: ['Admin Fleet'],
+        summary: 'Delete a vehicle',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'vehicleId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        responses: {
+          '204': { description: 'Vehicle deleted' },
+          '404': { description: 'Vehicle not found' },
+          '409': { description: 'Vehicle cannot be deleted due to existing records' }
+        }
+      }
+    },
+    '/api/admin/fleet/vehicles/{vehicleId}/assign-driver': {
+      post: {
+        tags: ['Admin Fleet'],
+        summary: 'Assign a driver to a vehicle',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'vehicleId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AdminAssignDriverRequest' }
+            }
+          }
+        },
+        responses: {
+          '201': {
+            description: 'Driver assigned successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminDriverAssignmentResponse' }
+              }
+            }
+          },
+          '400': { description: 'Validation error' },
+          '404': { description: 'Vehicle or driver not found' }
+        }
+      }
+    },
+    '/api/admin/fleet/vehicles/{vehicleId}/insurance/pay': {
+      post: {
+        tags: ['Admin Fleet'],
+        summary: 'Record an insurance payment for a vehicle',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'vehicleId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AdminInsurancePaymentRequest' }
+            }
+          }
+        },
+        responses: {
+          '201': {
+            description: 'Insurance payment recorded',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminInsurancePaymentResponse' }
+              }
+            }
+          },
+          '400': { description: 'Validation error' },
+          '404': { description: 'Vehicle not found' }
+        }
+      }
+    },
+    '/api/admin/loans': {
+      get: {
+        tags: ['Admin Loans'],
+        summary: 'List loan applications with optional filters',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'status',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['PENDING', 'APPROVED', 'REJECTED', 'DISBURSED', 'REPAID', 'DEFAULTED']
+            }
+          },
+          {
+            name: 'type',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['NORMAL', 'EMERGENCY']
+            }
+          },
+          {
+            name: 'search',
+            in: 'query',
+            schema: { type: 'string' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Loan list',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    items: {
+                      type: 'array',
+                      items: { $ref: '#/components/schemas/AdminLoanSummary' }
+                    },
+                    totals: {
+                      type: 'object',
+                      properties: {
+                        total: { type: 'integer' },
+                        byStatus: {
+                          type: 'object',
+                          additionalProperties: { type: 'integer' }
+                        },
+                        byType: {
+                          type: 'object',
+                          additionalProperties: { type: 'integer' }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/api/admin/loans/{loanId}': {
+      get: {
+        tags: ['Admin Loans'],
+        summary: 'Get a single loan application',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'loanId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        responses: {
+          '200': {
+            description: 'Loan details',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminLoanSummary' }
+              }
+            }
+          },
+          '404': { description: 'Loan not found' }
+        }
+      },
+      patch: {
+        tags: ['Admin Loans'],
+        summary: 'Update a loan application',
+        security: [{ BearerAuth: [] }],
+        parameters: [
+          {
+            name: 'loanId',
+            in: 'path',
+            required: true,
+            schema: { type: 'string', format: 'uuid' }
+          }
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/AdminLoanUpdateRequest' }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Loan updated successfully',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/AdminLoanSummary' }
+              }
+            }
+          },
+          '400': { description: 'Validation error' },
+          '404': { description: 'Loan not found' }
         }
       }
     },
