@@ -836,6 +836,31 @@ router.patch('/users/:userId', async (req, res) => {
   }
 });
 
+const approveUserWithRole = async (userId: string, roleId: string) => {
+  const role = await prisma.role.findUnique({
+    where: { id: roleId },
+    select: { id: true }
+  });
+
+  if (!role) {
+    const error = new Error('Role not found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      status: UserStatus.ACTIVE,
+      updatedAt: new Date(),
+      role: { connect: { id: roleId } }
+    },
+    include: userSummaryInclude
+  });
+
+  return mapUserToSummary(updated);
+};
+
 const updateUserStatus = async (userId: string, status: UserStatus) => {
   const updated = await prisma.user.update({
     where: { id: userId },
@@ -851,11 +876,19 @@ const updateUserStatus = async (userId: string, status: UserStatus) => {
 
 router.post('/users/:userId/approve', async (req, res) => {
   try {
-    const summary = await updateUserStatus(req.params.userId, UserStatus.ACTIVE);
+    const roleId = toStringOrNull(req.body?.roleId);
+    if (!roleId) {
+      return res.status(400).json({ message: 'roleId is required to approve a user' });
+    }
+
+    const summary = await approveUserWithRole(req.params.userId, roleId);
     res.json(summary);
   } catch (error: any) {
     if (error?.code === 'P2025') {
       return res.status(404).json({ message: 'User not found' });
+    }
+    if (error?.statusCode === 404) {
+      return res.status(404).json({ message: error.message ?? 'Role not found' });
     }
     console.error('Failed to approve user', error);
     res.status(500).json({ message: 'Failed to approve user' });
@@ -897,15 +930,22 @@ router.get('/users-pending-approval', async (_req, res) => {
 router.post('/approve-user', async (req, res) => {
   try {
     const userId = toStringOrNull(req.body?.userId);
+    const roleId = toStringOrNull(req.body?.roleId);
     if (!userId) {
       return res.status(400).json({ message: 'userId is required' });
     }
+    if (!roleId) {
+      return res.status(400).json({ message: 'roleId is required' });
+    }
 
-    const summary = await updateUserStatus(userId, UserStatus.ACTIVE);
+    const summary = await approveUserWithRole(userId, roleId);
     res.json(summary);
   } catch (error: any) {
     if (error?.code === 'P2025') {
       return res.status(404).json({ message: 'User not found' });
+    }
+    if (error?.statusCode === 404) {
+      return res.status(404).json({ message: error.message ?? 'Role not found' });
     }
     console.error('Failed to approve user', error);
     res.status(500).json({ message: 'Failed to approve user' });

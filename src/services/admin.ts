@@ -328,9 +328,10 @@ export async function updateAdminUser(
   });
 }
 
-export async function approveAdminUser(userId: string): Promise<AdminUserSummary> {
+export async function approveAdminUser(userId: string, roleId: string): Promise<AdminUserSummary> {
   return request(`${ADMIN_BASE}/users/${userId}/approve`, {
     method: 'POST',
+    body: JSON.stringify({ roleId }),
   });
 }
 

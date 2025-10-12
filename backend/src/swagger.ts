@@ -229,6 +229,17 @@ const swaggerDocument = {
           }
         }
       },
+      ApproveUserRequest: {
+        type: 'object',
+        required: ['roleId'],
+        properties: {
+          roleId: {
+            type: 'string',
+            description: 'Identifier of the role to assign prior to activation',
+            example: 'role-uuid'
+          }
+        }
+      },
       AssignDriverRequest: {
         type: 'object',
         required: ['driverId'],
@@ -593,6 +604,14 @@ const swaggerDocument = {
             schema: { type: 'string', format: 'uuid' }
           }
         ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ApproveUserRequest' }
+            }
+          }
+        },
         responses: {
           '200': {
             description: 'Updated user summary',

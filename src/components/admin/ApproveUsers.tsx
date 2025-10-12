@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -11,8 +11,10 @@ import {
   fetchDashboardUsers,
   approveAdminUser,
   setAdminUserStatus,
+  fetchRoles,
   AdminUserSummary,
-  AdminUserStatusCode
+  AdminUserStatusCode,
+  AdminRole
 } from '../../services/admin';
 import {
   CheckCircle,
@@ -84,12 +86,22 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
   const [selectedUser, setSelectedUser] = useState<AdminUserSummary | null>(null);
   const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [actionInFlight, setActionInFlight] = useState<string | null>(null);
+  const [roles, setRoles] = useState<AdminRole[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [roleSelections, setRoleSelections] = useState<Record<string, string | null>>({});
 
   const loadUsers = async () => {
     setLoading(true);
     try {
       const response = await fetchDashboardUsers();
       setUsers(response.items);
+      setRoleSelections(prev => {
+        const next: Record<string, string | null> = {};
+        response.items.forEach(item => {
+          next[item.id] = prev[item.id] ?? item.roleId ?? null;
+        });
+        return next;
+      });
     } catch (err) {
       console.error('Failed to load admin users list', err);
       setUsers([]);
@@ -101,6 +113,23 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
 
   useEffect(() => {
     loadUsers();
+  }, []);
+
+  useEffect(() => {
+    const loadRolesList = async () => {
+      setRolesLoading(true);
+      try {
+        const response = await fetchRoles();
+        setRoles(response);
+      } catch (err) {
+        console.error('Failed to load roles list', err);
+        setRoles([]);
+      } finally {
+        setRolesLoading(false);
+      }
+    };
+
+    loadRolesList();
   }, []);
 
   const filteredUsers = useMemo(() => {
@@ -120,6 +149,17 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
     });
   }, [users, searchTerm, statusFilter]);
 
+  const handleRoleSelection = (userId: string, roleId: string) => {
+    setRoleSelections(prev => ({ ...prev, [userId]: roleId }));
+  };
+  const resolveRoleName = (roleId: string | null) => {
+    if (!roleId) return 'Unassigned';
+    const match = roles.find(role => role.id === roleId);
+    return match ? match.name : 'Unassigned';
+  };
+
+  const selectedUserRoleId = selectedUser ? roleSelections[selectedUser.id] ?? selectedUser.roleId ?? null : null;
+
   const groupedUsers = useMemo(() => {
     const pending = filteredUsers.filter(userItem => userItem.statusCode === 'PENDING');
     const active = filteredUsers.filter(userItem => userItem.statusCode === 'ACTIVE');
@@ -129,10 +169,16 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
   }, [filteredUsers]);
 
   const handleApproveUser = async (userId: string) => {
+    const roleId = roleSelections[userId];
+    if (!roleId) {
+      console.warn('Select a role before approving this user');
+      return;
+    }
     setActionInFlight(userId);
     try {
-      const updated = await approveAdminUser(userId);
+      const updated = await approveAdminUser(userId, roleId);
       setUsers(prev => prev.map(item => (item.id === userId ? updated : item)));
+      setRoleSelections(prev => ({ ...prev, [userId]: updated.roleId ?? roleId }));
       if (selectedUser?.id === userId) {
         setSelectedUser(updated);
       }
@@ -240,6 +286,11 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                 onReject={() => handleSuspendUser(userItem.id, 'SUSPENDED')}
                 onView={() => handleViewDetails(userItem)}
                 actionInFlight={actionInFlight === userItem.id}
+                roles={roles}
+                roleLoading={rolesLoading}
+                selectedRoleId={roleSelections[userItem.id] ?? null}
+                onRoleChange={(value) => handleRoleSelection(userItem.id, value)}
+                disableApprove={!roleSelections[userItem.id]}
               />
             ))}
             {groupedUsers.pending.length === 0 && (
@@ -296,6 +347,11 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                 onView={() => handleViewDetails(userItem)}
                 actionInFlight={actionInFlight === userItem.id}
                 rejectLabel="Mark Inactive"
+                roles={roles}
+                roleLoading={rolesLoading}
+                selectedRoleId={roleSelections[userItem.id] ?? null}
+                onRoleChange={(value) => handleRoleSelection(userItem.id, value)}
+                disableApprove={!roleSelections[userItem.id]}
               />
             ))}
             {groupedUsers.suspended.length === 0 && (
@@ -367,17 +423,39 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <InfoRow icon={UserIcon} label="Member Number" value={selectedUser.memberNumber ?? '—'} />
-                  <InfoRow icon={Phone} label="Phone" value={selectedUser.phone ?? '—'} />
+                  <InfoRow icon={UserIcon} label="Member Number" value={selectedUser.memberNumber ?? '•'} />
+                  <InfoRow icon={Phone} label="Phone" value={selectedUser.phone ?? '•'} />
                   <InfoRow icon={Mail} label="Email" value={selectedUser.email} />
                   <InfoRow
                     icon={Calendar}
                     label="Registered"
-                    value={selectedUser.registrationDate ? new Date(selectedUser.registrationDate).toLocaleDateString() : '—'}
+                    value={selectedUser.registrationDate ? new Date(selectedUser.registrationDate).toLocaleDateString() : '•'}
                   />
-                  <InfoRow icon={MapPin} label="Profile Category" value={selectedUser.profileCategoryLabel ?? '—'} />
-                  <InfoRow icon={UserIcon} label="Role" value={selectedUser.role?.name ?? 'Unassigned'} />
+                  <InfoRow icon={MapPin} label="Profile Category" value={selectedUser.profileCategoryLabel ?? '•'} />
+                  <InfoRow icon={UserIcon} label="Role" value={resolveRoleName(selectedUserRoleId)} />
                 </div>
+
+                {roles.length > 0 && (
+                  <div>
+                    <h3 className="font-medium text-gray-900 mb-3">Role Assignment</h3>
+                    <Select
+                      value={selectedUserRoleId ?? undefined}
+                      onValueChange={(value) => handleRoleSelection(selectedUser.id, value)}
+                      disabled={rolesLoading}
+                    >
+                      <SelectTrigger className="w-full md:w-64">
+                        <SelectValue placeholder="Assign role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roles.map(role => (
+                          <SelectItem key={role.id} value={role.id}>
+                            {role.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 <div>
                   <h3 className="font-medium text-gray-900 mb-3">Financial Information</h3>
@@ -401,7 +479,7 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                               <div>
                                 <p className="font-medium">{vehicle.plateNumber}</p>
                                 <p className="text-sm text-gray-600">
-                                  {[vehicle.model, vehicle.year?.toString()].filter(Boolean).join(' • ') || '—'}
+                                  {[vehicle.model, vehicle.year?.toString()].filter(Boolean).join(' • ') || '•'}
                                 </p>
                               </div>
                             </div>
@@ -423,7 +501,7 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                     <>
                       <Button
                         onClick={() => handleApproveUser(selectedUser.id)}
-                        disabled={actionInFlight === selectedUser.id}
+                        disabled={actionInFlight === selectedUser.id || !selectedUserRoleId}
                         className="bg-green-600 hover:bg-green-700 text-white"
                       >
                         <CheckCircle className="h-4 w-4 mr-2" />
@@ -454,7 +532,7 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
                   {selectedUser.statusCode === 'SUSPENDED' && (
                     <Button
                       onClick={() => handleApproveUser(selectedUser.id)}
-                      disabled={actionInFlight === selectedUser.id}
+                      disabled={actionInFlight === selectedUser.id || !selectedUserRoleId}
                       className="bg-green-600 hover:bg-green-700 text-white"
                     >
                       <CheckCircle className="h-4 w-4 mr-2" />
@@ -481,6 +559,11 @@ interface UserCardProps {
   showReject?: boolean;
   approveLabel?: string;
   rejectLabel?: string;
+  roles?: AdminRole[];
+  selectedRoleId?: string | null;
+  onRoleChange?: (roleId: string) => void;
+  roleLoading?: boolean;
+  disableApprove?: boolean;
 }
 
 const UserCard = ({
@@ -492,7 +575,12 @@ const UserCard = ({
   showApprove = true,
   showReject = true,
   approveLabel = 'Approve',
-  rejectLabel = 'Reject'
+  rejectLabel = 'Reject',
+  roles,
+  selectedRoleId = null,
+  onRoleChange,
+  roleLoading = false,
+  disableApprove = false
 }: UserCardProps) => (
   <Card className="hover:shadow-md transition-shadow">
     <CardContent className="p-6">
@@ -527,13 +615,31 @@ const UserCard = ({
               </div>
               <div className="flex items-center space-x-2">
                 <Calendar className="h-4 w-4" />
-                <span>Registered: {user.registrationDate ? new Date(user.registrationDate).toLocaleDateString() : '—'}</span>
+                <span>Registered: {user.registrationDate ? new Date(user.registrationDate).toLocaleDateString() : '•'}</span>
               </div>
             </div>
           </div>
         </div>
 
         <div className="flex flex-col space-y-2">
+          {roles && onRoleChange && (
+            <Select
+              value={selectedRoleId ?? undefined}
+              onValueChange={onRoleChange}
+              disabled={roleLoading || actionInFlight}
+            >
+              <SelectTrigger className="w-40">
+                <SelectValue placeholder="Assign role" />
+              </SelectTrigger>
+              <SelectContent>
+                {roles.map(role => (
+                  <SelectItem key={role.id} value={role.id}>
+                    {role.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -548,7 +654,7 @@ const UserCard = ({
               size="sm"
               className="bg-green-600 hover:bg-green-700 text-white flex items-center space-x-2"
               onClick={onApprove}
-              disabled={actionInFlight}
+              disabled={actionInFlight || disableApprove}
             >
               <CheckCircle className="h-4 w-4" />
               <span>{approveLabel}</span>
@@ -596,5 +702,13 @@ const StatTile = ({ label, value }: { label: string; value: string }) => (
     <p className="font-semibold">{value}</p>
   </div>
 );
+
+
+
+
+
+
+
+
 
 
