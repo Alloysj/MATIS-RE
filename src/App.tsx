@@ -11,6 +11,7 @@ import { LoginPage } from './components/LoginPage';
 import { RegisterPage } from './components/RegisterPage';
 import { ForgotPasswordPage } from './components/ForgotPasswordPage';
 import { VehicleOwnerDataProvider } from './context/VehicleOwnerDataContext';
+import { NotFound } from './components/NotFound';
 
 // Vehicle Owner Pages
 import { ShareholderCapitalPayment } from './components/vehicleowner/ShareholderCapitalPayment';
@@ -34,6 +35,8 @@ import { FinancialOverview } from './components/admin/FinancialOverview';
 import { LoanApplications } from './components/admin/LoanApplications';
 import { RouteManagement } from './components/admin/RouteManagement';
 import { UserReports } from './components/admin/UserReports';
+import { FinancialReports } from './components/admin/FinancialReports';
+import { FleetReports } from './components/admin/FleetReports';
 
 // Staff Pages
 import { StaffDashboard } from './components/staff/StaffDashboard';
@@ -275,7 +278,21 @@ export default function App() {
             <UserReports user={user} onNavigate={handleNavigate} onLogout={handleLogout} />
           </ProtectedRoute>
         );
-      
+      case 'admin/reports/financials':
+        return (
+          <ProtectedRoute user={user} routePath="admin/reports/financials" onNavigate={handleNavigate}>
+            <FinancialReports user={user} onNavigate={handleNavigate} onLogout={handleLogout} />
+          </ProtectedRoute>
+        );
+      case 'admin/reports/fleet':
+        return (
+          <ProtectedRoute user={user} routePath="admin/reports/fleet" onNavigate={handleNavigate}>
+            <FleetReports user={user} onNavigate={handleNavigate} onLogout={handleLogout} />
+          </ProtectedRoute>
+        );
+      case 'not-found':
+        return <NotFound onNavigate={handleNavigate} />;
+
       // Staff pages
       case 'staff/dashboard':
         return (
@@ -320,12 +337,8 @@ export default function App() {
           </ProtectedRoute>
         );
       
-            default:
-        return (
-          <ProtectedRoute user={user} routePath="home" onNavigate={handleNavigate}>
-            <LandingPage onNavigate={handleNavigate} />
-          </ProtectedRoute>
-        );
+      default:
+        return <NotFound onNavigate={handleNavigate} />;
     }
   };
 

@@ -32,7 +32,8 @@ const ROLE_PERMISSION_FALLBACK: Record<User['role'], string[]> = {
     'manage_staff',
     'manage_expenses',
     'manage_salary',
-    'view_reports'
+    'view_reports',
+    'view_all_reports'
   ],
   Staff: ['manage_loans', 'manage_expenses', 'manage_salary', 'view_reports'],
   Chairperson: ['manage_board', 'view_reports', 'manage_board_matters'],
@@ -50,6 +51,7 @@ export const routeConfigs: Record<string, RouteConfig> = {
   'login': { path: 'login', isPublic: true },
   'register': { path: 'register', isPublic: true },
   'forgot-password': { path: 'forgot-password', isPublic: true },
+  'not-found': { path: 'not-found', isPublic: true },
 
   // Vehicle Owner routes
   'users/welcome': { 
@@ -156,6 +158,16 @@ export const routeConfigs: Record<string, RouteConfig> = {
     allowedRoles: ['Admin'],
     requiredPermissions: ['view_all_reports']
   },
+  'admin/reports/financials': {
+    path: 'admin/reports/financials',
+    allowedRoles: ['Admin'],
+    requiredPermissions: ['view_all_reports']
+  },
+  'admin/reports/fleet': {
+    path: 'admin/reports/fleet',
+    allowedRoles: ['Admin'],
+    requiredPermissions: ['view_all_reports']
+  },
 
   // Staff routes
   'staff/dashboard': { 
@@ -211,7 +223,7 @@ export class RouteProtectionService {
       return {
         authorized: false,
         reason: 'Route not found',
-        redirectTo: 'home'
+        redirectTo: 'not-found'
       };
     }
 
