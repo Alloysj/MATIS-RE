@@ -37,6 +37,8 @@ import { FinancialOverview } from './admin/FinancialOverview';
 import { LoanApplications } from './admin/LoanApplications';
 import { RouteManagement } from './admin/RouteManagement';
 import { UserReports } from './admin/UserReports';
+import { FinancialReports } from './admin/FinancialReports';
+import { FleetReports } from './admin/FleetReports';
 
 // Staff Pages
 import { StaffDashboard } from './staff/StaffDashboard';
@@ -46,6 +48,7 @@ import { LoanManagement } from './staff/LoanManagement';
 import { ExpenseTracking } from './staff/ExpenseTracking';
 import { MatatuManagement } from './staff/MatatuManagement';
 import { Reports } from './staff/Reports';
+import { NotFound } from './NotFound';
 
 // Main router component that handles authentication and routing
 function RouterApp() {
@@ -302,13 +305,29 @@ function AppRoutes({
               </ProtectedRoute>
             } 
           />
-          <Route 
-            path="/admin/reports/users" 
+          <Route
+            path="/admin/reports/users"
             element={
               <ProtectedRoute user={user} routePath="admin/reports/users" onNavigate={handleNavigate}>
                 <UserReports user={user} onNavigate={handleNavigate} onLogout={onLogout} />
               </ProtectedRoute>
-            } 
+            }
+          />
+          <Route
+            path="/admin/reports/financials"
+            element={
+              <ProtectedRoute user={user} routePath="admin/reports/financials" onNavigate={handleNavigate}>
+                <FinancialReports user={user} onNavigate={handleNavigate} onLogout={onLogout} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/reports/fleet"
+            element={
+              <ProtectedRoute user={user} routePath="admin/reports/fleet" onNavigate={handleNavigate}>
+                <FleetReports user={user} onNavigate={handleNavigate} onLogout={onLogout} />
+              </ProtectedRoute>
+            }
           />
 
           {/* Staff Routes */}
@@ -375,8 +394,8 @@ function AppRoutes({
             element={<DashboardRedirect user={user} />} 
           />
 
-          {/* Catch all route - redirect to home */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Catch all route - show not found */}
+          <Route path="*" element={<NotFound onNavigate={handleNavigate} />} />
         </Routes>
       </main>
     </div>
