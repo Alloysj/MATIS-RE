@@ -64,8 +64,6 @@ export function AdminLayout({ children, user, currentPage, onNavigate, onLogout 
       icon: Car,
       children: [
         { name: 'All Vehicles', href: 'admin/fleet', icon: Car },
-        { name: 'Assign Drivers', href: 'admin/fleet/assignments', icon: CarFront },
-        { name: 'Vehicle Status', href: 'admin/fleet/statuses', icon: Settings },
         { name: 'Route Management', href: 'admin/fleet/routes', icon: Route }
       ]
     },

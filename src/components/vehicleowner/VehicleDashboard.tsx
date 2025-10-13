@@ -8,12 +8,12 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Car, CreditCard, PiggyBank, Shield, User, ChevronDown, ChevronUp, MapPin, Calendar, DollarSign, Plus } from 'lucide-react';
-import { getDashboardCards, getAvailableDrivers, assignDriver, VehicleCard, AvailableDriver } from '../../services/matatus';
-
+import { assignDriver } from '../../services/matatus';
 import { processPayment, checkPaymentStatus } from '../../services/finance';
+import { useVehicleOwnerData } from '../../context/VehicleOwnerDataContext';
 
 interface VehicleDashboardProps {
-  user: { name: string; role: string; phone: string } | null;
+  user: { id?: string; name: string; role: string; phone: string } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -24,10 +24,14 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
   const [paymentAmount, setPaymentAmount] = useState('');
   const [selectedVehicleForDriver, setSelectedVehicleForDriver] = useState<string | null>(null);
   const [selectedDriver, setSelectedDriver] = useState('');
-  const [vehicles, setVehicles] = useState<VehicleCard[]>([]);
-  const [drivers, setDrivers] = useState<AvailableDriver[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>('');
+  const { matatu, loadMatatu, refreshMatatu, refreshFinance } = useVehicleOwnerData();
+
+  const vehicles = matatu.data?.dashboardCards ?? [];
+  const drivers = matatu.data?.availableDrivers ?? [];
+  const loading = matatu.status === 'loading' && !matatu.data;
+  const isRefreshingMatatu = matatu.status === 'loading' && Boolean(matatu.data);
+  const error = matatu.error;
+
 
   const [paymentPhone, setPaymentPhone] = useState(user?.phone ?? '');
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
@@ -39,25 +43,8 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
   const PAYMENT_STATUS_INTERVAL_MS = 5000;
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const [v, d] = await Promise.all([
-          getDashboardCards(),
-          getAvailableDrivers()
-        ]);
-        setVehicles(v);
-        setDrivers(d);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error(e);
-        setError('Failed to load dashboard data');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
+    void loadMatatu();
+  }, [loadMatatu]);
 
   useEffect(() => {
     if (selectedVehicleForPayment && user?.phone) {
@@ -103,6 +90,12 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
         setPaymentFeedback({ type: 'success', message });
         setPaymentAmount('');
         setSelectedVehicleForPayment(null);
+        try {
+          await Promise.allSettled([refreshFinance(), refreshMatatu()]);
+        } catch (refreshError) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to refresh data after payment', refreshError);
+        }
       } else if (status.status === 'canceled') {
         setPaymentFeedback({
           type: 'error',
@@ -185,8 +178,7 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
     if (!selectedDriver || !selectedVehicleForDriver) return;
     try {
       await assignDriver(selectedVehicleForDriver, selectedDriver);
-      const v = await getDashboardCards();
-      setVehicles(v);
+      await refreshMatatu();
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error(e);
@@ -211,7 +203,18 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
         </div>
 
         <div className="space-y-6">
+          {error && (
+            <div className="text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2">
+              {error}
+            </div>
+          )}
+          {isRefreshingMatatu && !loading && (
+            <div className="text-white/60 text-sm">Refreshing vehicle data…</div>
+          )}
           {loading && <div className="text-white/70">Loading...</div>}
+          {!loading && vehicles.length === 0 && !error && (
+            <div className="text-white/60">No vehicles available yet. Add one to get started.</div>
+          )}
           {!loading && vehicles.map((vehicle) => (
             <Card key={vehicle.id} className="backdrop-blur-xl bg-white/10 border-white/20">
               <CardHeader>
@@ -384,9 +387,13 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
                     </DialogContent>
                   </Dialog>
 
-                  <Button variant="outline" className="border-[var(--neon-yellow)]/30 text-[var(--neon-yellow)] hover:bg-[var(--neon-yellow)]/10">
+                  <Button
+                    variant="outline"
+                    onClick={() => onNavigate('users/profile')}
+                    className="border-[var(--neon-yellow)]/30 text-[var(--neon-yellow)] hover:bg-[var(--neon-yellow)]/10"
+                  >
                     <Calendar className="w-4 h-4 mr-2" />
-                    Payment History
+                    View Profile
                   </Button>
                 </div>
 

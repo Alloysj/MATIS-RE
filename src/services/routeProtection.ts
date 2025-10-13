@@ -1,6 +1,5 @@
-import { UserDataService } from './userData';
-
 export interface User {
+  id?: string;
   name: string;
   role: 'Vehicle Owner' | 'Admin' | 'Staff' | 'Chairperson' | 'Treasurer';
   phone: string;
@@ -15,6 +14,30 @@ export interface RouteConfig {
   requiresCapitalPayment?: boolean;
   isPublic?: boolean;
 }
+
+const ROLE_PERMISSION_FALLBACK: Record<User['role'], string[]> = {
+  'Vehicle Owner': ['view_own_profile', 'manage_own_vehicles', 'apply_loans', 'view_own_financials'],
+  Admin: [
+    'full_access',
+    'manage_members',
+    'approve_members',
+    'manage_roles',
+    'manage_fleet',
+    'manage_financials',
+    'manage_loans',
+    'manage_routes',
+    'manage_savings',
+    'manage_board_matters',
+    'manage_board',
+    'manage_staff',
+    'manage_expenses',
+    'manage_salary',
+    'view_reports'
+  ],
+  Staff: ['manage_loans', 'manage_expenses', 'manage_salary', 'view_reports'],
+  Chairperson: ['manage_board', 'view_reports', 'manage_board_matters'],
+  Treasurer: ['manage_financials', 'view_reports', 'manage_expenses']
+};
 
 // Define route configurations with their access requirements
 export const routeConfigs: Record<string, RouteConfig> = {
@@ -36,6 +59,12 @@ export const routeConfigs: Record<string, RouteConfig> = {
   },
   'users/home': { 
     path: 'users/home', 
+    allowedRoles: ['Vehicle Owner'],
+    requiredPermissions: ['view_own_profile'],
+    requiresCapitalPayment: true
+  },
+  'users/profile': { 
+    path: 'users/profile', 
     allowedRoles: ['Vehicle Owner'],
     requiredPermissions: ['view_own_profile'],
     requiresCapitalPayment: true
@@ -62,12 +91,6 @@ export const routeConfigs: Record<string, RouteConfig> = {
     path: 'users/addVehicle', 
     allowedRoles: ['Vehicle Owner'],
     requiredPermissions: ['manage_own_vehicles'],
-    requiresCapitalPayment: true
-  },
-  'users/payments': { 
-    path: 'users/payments', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['view_own_financials'],
     requiresCapitalPayment: true
   },
   'users/exit': { 
@@ -252,10 +275,9 @@ export class RouteProtectionService {
       return user.permissions;
     }
 
-    // Otherwise, get permissions from role
-    const roles = UserDataService.getAllRoles();
-    const userRole = roles.find(role => role.name === user.role);
-    return userRole ? userRole.permissions : [];
+    // Otherwise, fall back to predefined role permissions
+    const fallback = ROLE_PERMISSION_FALLBACK[user.role];
+    return fallback ? [...fallback] : [];
   }
 
   /**
@@ -348,10 +370,10 @@ export class RouteProtectionService {
     // Role-specific navigation
     if (user.role === 'Vehicle Owner') {
       const vehicleOwnerItems = [
+        { label: 'Profile', route: 'users/profile' },
         { label: 'My Vehicles', route: 'users/vehicles' },
         { label: 'Apply for Loan', route: 'users/apply-loan' },
-        { label: 'Financial Status', route: 'users/financial-status' },
-        { label: 'Payments', route: 'users/payments' }
+        { label: 'Financial Status', route: 'users/financial-status' }
       ].filter(item => this.isAuthorized(user, item.route).authorized);
 
       if (vehicleOwnerItems.length > 0) {

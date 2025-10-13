@@ -1,41 +1,2116 @@
-import { Router } from 'express';
-import { PrismaClient, UserStatus } from '@prisma/client';
+import { Router, Response, NextFunction } from 'express';
+import {
+  PrismaClient,
+  Prisma,
+  UserStatus,
+  VehicleStatus,
+  RegistrationStatus,
+  LoanStatus,
+  LoanType,
+  InsuranceStatus,
+  PaymentStatus,
+  PaymentCategory
+} from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import { authenticate, AuthRequest } from '../middleware/auth';
 
 const prisma = new PrismaClient();
 const router = Router();
 
-// List all approved users
+const ADMIN_ROLE_NAMES = new Set(['ADMIN', 'SUPERADMIN', 'SUPER ADMIN']);
+
+const userSummaryInclude = {
+  role: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      rolePermissions: {
+        select: {
+          permission: {
+            select: {
+              id: true,
+              name: true,
+              description: true
+            }
+          }
+        }
+      }
+    }
+  },
+  vehicles: {
+    select: {
+      id: true,
+      plateNumber: true,
+      status: true,
+      model: true,
+      vehicleType: true,
+      yearOfManufacture: true,
+      route: {
+        select: {
+          id: true,
+          name: true,
+          startPoint: true,
+          endPoint: true
+        }
+      }
+    }
+  },
+  driverAssignments: {
+    select: {
+      id: true,
+      plateNumber: true,
+      status: true,
+      model: true,
+      vehicleType: true,
+      yearOfManufacture: true
+    }
+  },
+  vehicleDriverAssignments: {
+    where: { releasedAt: null },
+    select: {
+      id: true,
+      assignedAt: true,
+      vehicle: {
+        select: {
+          id: true,
+          plateNumber: true,
+          status: true,
+          model: true,
+          vehicleType: true,
+          yearOfManufacture: true
+        }
+      }
+    }
+  }
+} satisfies Prisma.UserInclude;
+
+const userDetailInclude = {
+  ...userSummaryInclude,
+  savingsAccounts: {
+    select: {
+      id: true,
+      balance: true,
+      accountType: true,
+      vehicleId: true,
+      createdAt: true
+    }
+  },
+  loansApplied: {
+    select: {
+      id: true,
+      amount: true,
+      status: true,
+      applicationDate: true,
+      type: true
+    }
+  },
+  capitalPayments: {
+    select: {
+      id: true,
+      amount: true,
+      paymentDate: true,
+      status: true
+    }
+  },
+  salaryAdvances: {
+    select: {
+      id: true,
+      amount: true,
+      status: true,
+      applicationDate: true
+    }
+  }
+} satisfies Prisma.UserInclude;
+
+type UserWithSummaryRelations = Prisma.UserGetPayload<{
+  include: typeof userSummaryInclude;
+}>;
+
+type UserWithDetailRelations = Prisma.UserGetPayload<{
+  include: typeof userDetailInclude;
+}>;
+
+const vehicleSummaryInclude = {
+  owner: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true
+    }
+  },
+  driver: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true
+    }
+  },
+  route: {
+    select: {
+      id: true,
+      name: true,
+      startPoint: true,
+      endPoint: true
+    }
+  },
+  savingsAccounts: {
+    select: {
+      balance: true
+    }
+  },
+  loans: {
+    select: {
+      id: true,
+      amount: true,
+      status: true
+    }
+  },
+  payments: {
+    orderBy: { paymentDate: 'desc' },
+    take: 1,
+    select: {
+      id: true,
+      paymentDate: true,
+      totalAmount: true
+    }
+  }
+} satisfies Prisma.VehicleInclude;
+
+const loanSummaryInclude = {
+  applicant: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true
+    }
+  },
+  vehicle: {
+    select: {
+      id: true,
+      plateNumber: true
+    }
+  },
+  guarantors: {
+    include: {
+      guarantor: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true
+        }
+      }
+    }
+  },
+  approvedBy: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true
+    }
+  }
+} satisfies Prisma.LoanInclude;
+
+const insuranceSummaryInclude = {
+  vehicle: {
+    select: {
+      id: true,
+      plateNumber: true,
+      owner: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true
+        }
+      }
+    }
+  }
+} satisfies Prisma.InsurancePolicyInclude;
+
+const savingsAccountSummaryInclude = {
+  user: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      phone: true
+    }
+  },
+  vehicle: {
+    select: {
+      id: true,
+      plateNumber: true
+    }
+  }
+} satisfies Prisma.SavingsAccountInclude;
+
+type VehicleWithSummaryRelations = Prisma.VehicleGetPayload<{
+  include: typeof vehicleSummaryInclude;
+}>;
+
+type LoanWithSummaryRelations = Prisma.LoanGetPayload<{
+  include: typeof loanSummaryInclude;
+}>;
+
+type InsuranceWithSummaryRelations = Prisma.InsurancePolicyGetPayload<{
+  include: typeof insuranceSummaryInclude;
+}>;
+
+type SavingsAccountWithSummaryRelations = Prisma.SavingsAccountGetPayload<{
+  include: typeof savingsAccountSummaryInclude;
+}>;
+
+const decimalToNumber = (value: Prisma.Decimal | null | undefined): number | null => {
+  if (value == null) return null;
+  return Number(value);
+};
+
+const toStringOrNull = (value: unknown): string | null => {
+  if (value == null) return null;
+  const str = String(value).trim();
+  return str.length ? str : null;
+};
+
+const normalizeUserStatus = (value: unknown): UserStatus | null => {
+  if (value == null) return null;
+  const normalized = String(value).trim().toUpperCase();
+  return (Object.values(UserStatus) as string[]).includes(normalized)
+    ? (normalized as UserStatus)
+    : null;
+};
+
+const normalizeVehicleStatus = (value: unknown): VehicleStatus | null => {
+  if (value == null) return null;
+  const normalized = String(value).trim().toUpperCase();
+  return (Object.values(VehicleStatus) as string[]).includes(normalized)
+    ? (normalized as VehicleStatus)
+    : null;
+};
+
+const normalizeRegistrationStatus = (value: unknown): RegistrationStatus | null => {
+  if (value == null) return null;
+  const normalized = String(value).trim().toUpperCase();
+  return (Object.values(RegistrationStatus) as string[]).includes(normalized)
+    ? (normalized as RegistrationStatus)
+    : null;
+};
+
+const normalizeInsuranceStatus = (value: unknown): InsuranceStatus | null => {
+  if (value == null) return null;
+  const normalized = String(value).trim().toUpperCase();
+  return (Object.values(InsuranceStatus) as string[]).includes(normalized)
+    ? (normalized as InsuranceStatus)
+    : null;
+};
+
+const normalizeLoanStatus = (value: unknown): LoanStatus | null => {
+  if (value == null) return null;
+  const normalized = String(value).trim().toUpperCase();
+  return (Object.values(LoanStatus) as string[]).includes(normalized) ? (normalized as LoanStatus) : null;
+};
+
+const normalizeLoanType = (value: unknown): LoanType | null => {
+  if (value == null) return null;
+  const normalized = String(value).trim().toUpperCase();
+  return (Object.values(LoanType) as string[]).includes(normalized) ? (normalized as LoanType) : null;
+};
+
+const formatEnumLabel = (value: string | null | undefined): string | null => {
+  if (!value) return null;
+  return value
+    .split('_')
+    .map(part => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(' ');
+};
+
+const formatUserStatus = (status: UserStatus): string => {
+  return formatEnumLabel(status) ?? status;
+};
+
+const splitFullName = (fullName: string) => {
+  const normalized = fullName.trim().replace(/\s+/g, ' ');
+  const [firstName, ...rest] = normalized.split(' ');
+  return {
+    firstName,
+    lastName: rest.length ? rest.join(' ') : firstName
+  };
+};
+
+const generateTemporaryPassword = (length = 10): string => {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  return Array.from({ length }, () => charset[Math.floor(Math.random() * charset.length)]).join('');
+};
+
+const toDecimalValue = (value: unknown): Prisma.Decimal | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  return new Prisma.Decimal(numeric);
+};
+
+const toDecimalUpdateValue = (value: unknown): Prisma.Decimal | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return undefined;
+  return new Prisma.Decimal(numeric);
+};
+
+const toNullableStringUpdate = (value: unknown): string | null | undefined => {
+  if (value === undefined) return undefined;
+  return toStringOrNull(value);
+};
+
+const toIntValue = (value: unknown): number | undefined => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+const toIntUpdateValue = (value: unknown): number | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+};
+
+const parseDateValue = (value: unknown): Date | undefined => {
+  const str = toStringOrNull(value);
+  if (!str) return undefined;
+  const date = new Date(str);
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date;
+};
+
+const parseDateUpdateValue = (value: unknown): Date | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const date = parseDateValue(value);
+  return date ?? undefined;
+};
+
+const requireAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  try {
+    const adminRecord = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { role: true }
+    });
+
+    const roleName = adminRecord?.role?.name?.trim().toUpperCase();
+
+    if (!adminRecord || !roleName || !ADMIN_ROLE_NAMES.has(roleName)) {
+      return res.status(403).json({ message: 'Admin privileges required' });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Failed to verify admin privileges', error);
+    res.status(500).json({ message: 'Failed to verify admin privileges' });
+  }
+};
+
+const buildUserName = (user: { firstName: string; lastName: string }): string => {
+  return [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+};
+
+const pickActiveAssignment = (user: UserWithSummaryRelations) => {
+  const assignment = user.vehicleDriverAssignments[0];
+  if (assignment?.vehicle) {
+    const vehicle = assignment.vehicle;
+    return {
+      assignmentId: assignment.id,
+      vehicleId: vehicle.id,
+      plateNumber: vehicle.plateNumber,
+      model: vehicle.model ?? null,
+      vehicleType: vehicle.vehicleType ?? null,
+      statusCode: vehicle.status,
+      status: formatEnumLabel(vehicle.status),
+      assignedAt: assignment.assignedAt ?? null
+    };
+  }
+
+  const directVehicle = user.driverAssignments[0];
+  if (directVehicle) {
+    return {
+      assignmentId: null,
+      vehicleId: directVehicle.id,
+      plateNumber: directVehicle.plateNumber,
+      model: directVehicle.model ?? null,
+      vehicleType: directVehicle.vehicleType ?? null,
+      statusCode: directVehicle.status,
+      status: formatEnumLabel(directVehicle.status),
+      assignedAt: null
+    };
+  }
+
+  return null;
+};
+const mapUserToSummary = (user: UserWithSummaryRelations) => {
+  const statusCode = user.status;
+  const rolePermissions = user.role?.rolePermissions ?? [];
+  const vehicles = user.vehicles.map(vehicle => ({
+    id: vehicle.id,
+    plateNumber: vehicle.plateNumber,
+    model: vehicle.model ?? null,
+    vehicleType: vehicle.vehicleType ?? null,
+    year: vehicle.yearOfManufacture ?? null,
+    statusCode: vehicle.status,
+    status: formatEnumLabel(vehicle.status),
+    routeId: vehicle.route?.id ?? null,
+    routeName: vehicle.route?.name ?? null,
+    route: vehicle.route
+      ? {
+          id: vehicle.route.id,
+          name: vehicle.route.name,
+          startPoint: vehicle.route.startPoint,
+          endPoint: vehicle.route.endPoint
+        }
+      : null
+  }));
+  const shareCapital = decimalToNumber(user.shareCapital);
+  const savingsBalance = decimalToNumber(user.savingsBalance);
+  const loanBalance = decimalToNumber(user.loanBalance);
+  const totalDeposits = decimalToNumber(user.totalDeposits);
+
+  return {
+    id: user.id,
+    memberNumber: user.memberNumber != null ? String(user.memberNumber) : null,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    name: buildUserName(user),
+    email: user.email,
+    phone: user.phone ?? null,
+    idNumber: user.idNumber ?? null,
+    statusCode,
+    status: formatUserStatus(statusCode),
+    registrationDate: user.registrationDate,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt ?? null,
+    lastLogin: user.lastLogin ?? null,
+    membershipType: user.membershipType ?? null,
+    profileCategory: user.profileCategory ?? null,
+    shareCapital,
+    savingsBalance,
+    loanBalance,
+    totalDeposits,
+    metrics: {
+      shareCapital,
+      savingsBalance,
+      loanBalance,
+      totalDeposits
+    },
+    vehicles,
+    vehiclesOwned: {
+      count: vehicles.length,
+      items: vehicles
+    },
+    activeDriverAssignment: pickActiveAssignment(user),
+    role: user.role
+      ? {
+          id: user.role.id,
+          name: user.role.name,
+          description: user.role.description ?? null
+        }
+      : null,
+    roleId: user.role?.id ?? null,
+    permissions: rolePermissions.map(rp => rp.permission.name),
+    profileCategoryLabel: formatEnumLabel(user.profileCategory ?? null),
+    membershipTypeLabel: formatEnumLabel(user.membershipType ?? null)
+  };
+};
+const mapUserToDetails = (user: UserWithDetailRelations) => {
+  const summary = mapUserToSummary(user);
+  return {
+    ...summary,
+    address: user.address ?? null,
+    county: user.county ?? null,
+    town: user.town ?? null,
+    occupation: user.occupation ?? null,
+    nextOfKin: user.nextOfKin ?? null,
+    nextOfKinPhone: user.nextOfKinPhone ?? null,
+    dateOfBirth: user.dateOfBirth ?? null,
+    savingsAccounts: user.savingsAccounts.map(account => ({
+      id: account.id,
+      balance: decimalToNumber(account.balance),
+      accountType: account.accountType ?? null,
+      vehicleId: account.vehicleId,
+      createdAt: account.createdAt
+    })),
+    loans: user.loansApplied.map(loan => ({
+      id: loan.id,
+      amount: decimalToNumber(loan.amount),
+      statusCode: loan.status,
+      status: formatEnumLabel(loan.status),
+      typeCode: loan.type,
+      type: formatEnumLabel(loan.type),
+      applicationDate: loan.applicationDate
+    })),
+    capitalPayments: user.capitalPayments.map(payment => ({
+      id: payment.id,
+      amount: decimalToNumber(payment.amount),
+      statusCode: payment.status,
+      status: formatEnumLabel(payment.status),
+      paymentDate: payment.paymentDate
+    })),
+    salaryAdvances: user.salaryAdvances.map(advance => ({
+      id: advance.id,
+      amount: decimalToNumber(advance.amount),
+      statusCode: advance.status,
+      status: formatEnumLabel(advance.status),
+      applicationDate: advance.applicationDate
+    }))
+  };
+};
+
+const mapVehicleToSummary = (vehicle: VehicleWithSummaryRelations) => {
+  const savingsTotal = vehicle.savingsAccounts.reduce((sum, account) => sum + (decimalToNumber(account.balance) ?? 0), 0);
+  const activeLoans = vehicle.loans.filter(
+    loan => loan.status !== LoanStatus.REPAID && loan.status !== LoanStatus.REJECTED
+  );
+  const outstandingLoanAmount = activeLoans.reduce(
+    (sum, loan) => sum + (decimalToNumber(loan.amount) ?? 0),
+    0
+  );
+
+  const lastPayment = vehicle.payments[0];
+
+  return {
+    id: vehicle.id,
+    plateNumber: vehicle.plateNumber,
+    model: vehicle.model ?? null,
+    vehicleType: vehicle.vehicleType ?? null,
+    yearOfManufacture: vehicle.yearOfManufacture ?? null,
+    statusCode: vehicle.status,
+    status: formatEnumLabel(vehicle.status) ?? vehicle.status,
+    registrationStatusCode: vehicle.registrationStatus,
+    registrationStatus: formatEnumLabel(vehicle.registrationStatus) ?? vehicle.registrationStatus,
+    insuranceStatusCode: vehicle.insuranceStatus,
+    insuranceStatus: formatEnumLabel(vehicle.insuranceStatus) ?? vehicle.insuranceStatus,
+    owner: vehicle.owner
+      ? {
+          id: vehicle.owner.id,
+          name: buildUserName(vehicle.owner),
+          phone: vehicle.owner.phone ?? null
+        }
+      : null,
+    driver: vehicle.driver
+      ? {
+          id: vehicle.driver.id,
+          name: buildUserName(vehicle.driver),
+          phone: vehicle.driver.phone ?? null
+        }
+      : null,
+    route: vehicle.route
+      ? {
+          id: vehicle.route.id,
+          name: vehicle.route.name,
+          startPoint: vehicle.route.startPoint,
+          endPoint: vehicle.route.endPoint
+        }
+      : null,
+    metrics: {
+      savingsBalance: savingsTotal,
+      outstandingLoanAmount,
+      activeLoanCount: activeLoans.length
+    },
+    lastPayment: lastPayment
+      ? {
+          id: lastPayment.id,
+          date: lastPayment.paymentDate.toISOString(),
+          amount: decimalToNumber(lastPayment.totalAmount)
+        }
+      : null
+  };
+};
+
+const mapLoanToSummary = (loan: LoanWithSummaryRelations) => {
+  const amount = decimalToNumber(loan.amount);
+  const savingsAtApplication = decimalToNumber(loan.savingsAtApplication);
+  const monthlyIncome = decimalToNumber(loan.monthlyIncome);
+  const existingLoans = decimalToNumber(loan.existingLoans);
+
+  return {
+    id: loan.id,
+    applicantId: loan.applicantId,
+    vehicleId: loan.vehicleId,
+    amount,
+    purpose: loan.purpose ?? null,
+    savingsAtApplication,
+    creditScore: loan.creditScore ?? null,
+    monthlyIncome,
+    existingLoans,
+    urgency: loan.urgency ?? null,
+    expectedRepaymentDate: loan.expectedRepaymentDate ?? null,
+    statusCode: loan.status,
+    status: formatEnumLabel(loan.status) ?? loan.status,
+    typeCode: loan.type,
+    type: formatEnumLabel(loan.type) ?? loan.type,
+    applicationDate: loan.applicationDate,
+    approvedAt: loan.approvedAt ?? null,
+    approvedBy: loan.approvedBy
+      ? {
+          id: loan.approvedBy.id,
+          name: buildUserName(loan.approvedBy)
+        }
+      : null,
+    applicant: loan.applicant
+      ? {
+          id: loan.applicant.id,
+          name: buildUserName(loan.applicant),
+          phone: loan.applicant.phone ?? null
+        }
+      : null,
+    vehicle: loan.vehicle
+      ? {
+          id: loan.vehicle.id,
+          plateNumber: loan.vehicle.plateNumber
+        }
+      : null,
+    guarantors: loan.guarantors.map(guarantor => ({
+      id: guarantor.guarantor.id,
+      name: buildUserName(guarantor.guarantor),
+      phone: guarantor.guarantor.phone ?? null
+    }))
+  };
+};
+
+const mapInsurancePolicyToSummary = (policy: InsuranceWithSummaryRelations) => {
+  const premiumAmount = decimalToNumber(policy.premiumAmount);
+  let daysToExpiry: number | null = null;
+  if (policy.expiryDate) {
+    const diffMs = policy.expiryDate.getTime() - Date.now();
+    daysToExpiry = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  }
+
+  return {
+    id: policy.id,
+    vehicleId: policy.vehicleId,
+    statusCode: policy.status,
+    status: formatEnumLabel(policy.status) ?? policy.status,
+    premiumAmount,
+    policyType: policy.policyType ?? null,
+    provider: policy.provider ?? null,
+    startDate: policy.startDate ?? null,
+    expiryDate: policy.expiryDate ?? null,
+    daysToExpiry,
+    vehicle: policy.vehicle
+      ? {
+          id: policy.vehicle.id,
+          plateNumber: policy.vehicle.plateNumber,
+          owner: policy.vehicle.owner
+            ? {
+                id: policy.vehicle.owner.id,
+                name: buildUserName(policy.vehicle.owner),
+                phone: policy.vehicle.owner.phone ?? null
+              }
+            : null
+        }
+      : null
+  };
+};
+
+const mapSavingsAccountToSummary = (account: SavingsAccountWithSummaryRelations) => {
+  const balance = decimalToNumber(account.balance);
+  const monthlyTarget = decimalToNumber(account.monthlyTarget);
+
+  return {
+    id: account.id,
+    userId: account.userId,
+    vehicleId: account.vehicleId ?? null,
+    accountType: account.accountType ?? null,
+    balance,
+    monthlyTarget,
+    lastDeposit: account.lastDeposit ?? null,
+    createdAt: account.createdAt,
+    user: account.user
+      ? {
+          id: account.user.id,
+          name: buildUserName(account.user),
+          phone: account.user.phone ?? null
+        }
+      : null,
+    vehicle: account.vehicle
+      ? {
+          id: account.vehicle.id,
+          plateNumber: account.vehicle.plateNumber
+        }
+      : null
+  };
+};
+
+const listUsers = async (where: Prisma.UserWhereInput) => {
+  const records = await prisma.user.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    include: userSummaryInclude
+  });
+
+  return records.map(mapUserToSummary);
+};
+
+router.use(authenticate, requireAdmin);
+
+router.get('/users', async (req, res) => {
+  try {
+    const status = normalizeUserStatus(req.query.status);
+    const searchTerm = toStringOrNull(req.query.search);
+    const roleId = toStringOrNull(req.query.roleId);
+
+    const where: Prisma.UserWhereInput = {};
+    if (status) {
+      where.status = status;
+    }
+    if (roleId) {
+      where.roleId = roleId;
+    }
+    if (searchTerm) {
+      const searchConditions: Prisma.UserWhereInput[] = [
+        { firstName: { contains: searchTerm, mode: 'insensitive' } },
+        { lastName: { contains: searchTerm, mode: 'insensitive' } },
+        { email: { contains: searchTerm, mode: 'insensitive' } },
+        { phone: { contains: searchTerm, mode: 'insensitive' } }
+      ];
+
+      if (/^\d+$/.test(searchTerm)) {
+        try {
+          const memberNumber = BigInt(searchTerm);
+          searchConditions.push({ memberNumber });
+        } catch {
+          // Ignore non-numeric member numbers
+        }
+      }
+
+      where.OR = searchConditions;
+    }
+
+    const items = await listUsers(where);
+    res.json({
+      items,
+      total: items.length,
+      appliedFilters: {
+        status: status ?? null,
+        roleId: roleId ?? null,
+        search: searchTerm ?? null
+      }
+    });
+  } catch (error) {
+    console.error('Failed to list admin users', error);
+    res.status(500).json({ message: 'Failed to list users' });
+  }
+});
+
+router.get('/users/:userId', async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.userId },
+      include: userDetailInclude
+    });
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json(mapUserToDetails(user));
+  } catch (error) {
+    console.error('Failed to fetch user details', error);
+    res.status(500).json({ message: 'Failed to fetch user details' });
+  }
+});
+
+router.post('/users', async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const explicitFirstName = toStringOrNull(body.firstName);
+    const explicitLastName = toStringOrNull(body.lastName);
+    const combinedName = toStringOrNull(body.name) ?? toStringOrNull(body.fullName);
+
+    let firstName = explicitFirstName;
+    let lastName = explicitLastName;
+
+    if ((!firstName || !lastName) && combinedName) {
+      const split = splitFullName(combinedName);
+      firstName = firstName ?? split.firstName;
+      lastName = lastName ?? split.lastName;
+    }
+
+    const email = toStringOrNull(body.email);
+    const passwordInput = toStringOrNull(body.password);
+
+    if (!firstName || !lastName || !email) {
+      return res.status(400).json({ message: 'firstName/lastName (or name) and email are required' });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
+
+    if (existing) {
+      return res.status(409).json({ message: 'A user with this email already exists' });
+    }
+
+    const passwordToUse = passwordInput ?? generateTemporaryPassword();
+    const hashedPassword = await bcrypt.hash(passwordToUse, 10);
+    const statusValue = normalizeUserStatus(body.status) ?? UserStatus.PENDING;
+    const roleId = toStringOrNull(body.roleId);
+
+    const data: Prisma.UserCreateInput = {
+      firstName,
+      lastName,
+      email: email.toLowerCase(),
+      passwordHash: hashedPassword,
+      phone: toStringOrNull(body.phone),
+      status: statusValue,
+      membershipType: toStringOrNull(body.membershipType),
+      profileCategory: toStringOrNull(body.profileCategory),
+      idNumber: toStringOrNull(body.idNumber),
+      address: toStringOrNull(body.address),
+      county: toStringOrNull(body.county),
+      town: toStringOrNull(body.town),
+      occupation: toStringOrNull(body.occupation),
+      nextOfKin: toStringOrNull(body.nextOfKin),
+      nextOfKinPhone: toStringOrNull(body.nextOfKinPhone)
+    };
+
+    const dateOfBirth = parseDateValue(body.dateOfBirth);
+    if (dateOfBirth) {
+      data.dateOfBirth = dateOfBirth;
+    }
+
+    const shareCapitalDecimal = toDecimalValue(body.shareCapital);
+    if (shareCapitalDecimal) {
+      data.shareCapital = shareCapitalDecimal;
+    }
+
+    const savingsBalanceDecimal = toDecimalValue(body.savingsBalance);
+    if (savingsBalanceDecimal) {
+      data.savingsBalance = savingsBalanceDecimal;
+    }
+
+    const loanBalanceDecimal = toDecimalValue(body.loanBalance);
+    if (loanBalanceDecimal) {
+      data.loanBalance = loanBalanceDecimal;
+    }
+
+    const totalDepositsDecimal = toDecimalValue(body.totalDeposits);
+    if (totalDepositsDecimal) {
+      data.totalDeposits = totalDepositsDecimal;
+    }
+
+    if (roleId) {
+      data.role = { connect: { id: roleId } };
+    }
+
+    const created = await prisma.user.create({
+      data,
+      include: userSummaryInclude
+    });
+
+    const responsePayload: Record<string, unknown> = {
+      user: mapUserToSummary(created)
+    };
+
+    if (!passwordInput) {
+      responsePayload.temporaryPassword = passwordToUse;
+    }
+
+    res.status(201).json(responsePayload);
+  } catch (error) {
+    console.error('Failed to create user', error);
+    res.status(500).json({ message: 'Failed to create user' });
+  }
+});
+router.patch('/users/:userId', async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const data: Prisma.UserUpdateInput = {};
+
+    const statusValue = normalizeUserStatus(body.status);
+    if (statusValue) {
+      data.status = statusValue;
+    } else if (body.status !== undefined) {
+      return res.status(400).json({ message: 'Invalid user status' });
+    }
+
+    const simpleFields: Array<keyof Prisma.UserUpdateInput> = [
+      'firstName',
+      'lastName',
+      'email',
+      'phone',
+      'membershipType',
+      'profileCategory',
+      'idNumber',
+      'address',
+      'county',
+      'town',
+      'occupation',
+      'nextOfKin',
+      'nextOfKinPhone'
+    ];
+
+    simpleFields.forEach(field => {
+      if (body[field] !== undefined) {
+        (data as any)[field] = toStringOrNull(body[field]);
+      }
+    });
+
+    if (body.email !== undefined) {
+      const email = toStringOrNull(body.email);
+      if (!email) {
+        return res.status(400).json({ message: 'Email cannot be empty' });
+      }
+      data.email = email.toLowerCase();
+    }
+
+    const roleId = toStringOrNull(body.roleId);
+    if (body.roleId !== undefined) {
+      data.role = roleId ? { connect: { id: roleId } } : { disconnect: true };
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: req.params.userId },
+      data,
+      include: userSummaryInclude
+    });
+
+    res.json(mapUserToSummary(updated));
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    console.error('Failed to update user', error);
+    res.status(500).json({ message: 'Failed to update user' });
+  }
+});
+
+const approveUserWithRole = async (userId: string, roleId: string) => {
+  const role = await prisma.role.findUnique({
+    where: { id: roleId },
+    select: { id: true }
+  });
+
+  if (!role) {
+    const error = new Error('Role not found');
+    (error as any).statusCode = 404;
+    throw error;
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      status: UserStatus.ACTIVE,
+      updatedAt: new Date(),
+      role: { connect: { id: roleId } }
+    },
+    include: userSummaryInclude
+  });
+
+  return mapUserToSummary(updated);
+};
+
+const updateUserStatus = async (userId: string, status: UserStatus) => {
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      status,
+      updatedAt: new Date()
+    },
+    include: userSummaryInclude
+  });
+
+  return mapUserToSummary(updated);
+};
+
+router.post('/users/:userId/approve', async (req, res) => {
+  try {
+    const roleId = toStringOrNull(req.body?.roleId);
+    if (!roleId) {
+      return res.status(400).json({ message: 'roleId is required to approve a user' });
+    }
+
+    const summary = await approveUserWithRole(req.params.userId, roleId);
+    res.json(summary);
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    if (error?.statusCode === 404) {
+      return res.status(404).json({ message: error.message ?? 'Role not found' });
+    }
+    console.error('Failed to approve user', error);
+    res.status(500).json({ message: 'Failed to approve user' });
+  }
+});
+
+router.post('/users/:userId/reject', async (req, res) => {
+  try {
+    const targetStatus = normalizeUserStatus(req.body?.status) ?? UserStatus.SUSPENDED;
+    const summary = await updateUserStatus(req.params.userId, targetStatus);
+    res.json(summary);
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    console.error('Failed to reject user', error);
+    res.status(500).json({ message: 'Failed to reject user' });
+  }
+});
+
 router.get('/users-approved', async (_req, res) => {
-  const users = await prisma.user.findMany({ where: { status: UserStatus.ACTIVE }, include: { role: true } });
-  res.json(users);
+  try {
+    res.json(await listUsers({ status: UserStatus.ACTIVE }));
+  } catch (error) {
+    console.error('Failed to list approved users', error);
+    res.status(500).json({ message: 'Failed to list approved users' });
+  }
 });
 
-// List users pending approval
 router.get('/users-pending-approval', async (_req, res) => {
-  const users = await prisma.user.findMany({ where: { status: UserStatus.PENDING }, include: { role: true } });
-  res.json(users);
+  try {
+    res.json(await listUsers({ status: UserStatus.PENDING }));
+  } catch (error) {
+    console.error('Failed to list pending users', error);
+    res.status(500).json({ message: 'Failed to list pending users' });
+  }
 });
 
-// List all users with roles
-router.get('/users', async (_req, res) => {
-  const users = await prisma.user.findMany({ include: { role: true } });
-  res.json(users);
-});
-
-// Approve a user
 router.post('/approve-user', async (req, res) => {
-  const { userId } = req.body;
-  const user = await prisma.user.update({ where: { id: userId }, data: { status: UserStatus.ACTIVE } });
-  // Email notification stub
-  res.json(user);
+  try {
+    const userId = toStringOrNull(req.body?.userId);
+    const roleId = toStringOrNull(req.body?.roleId);
+    if (!userId) {
+      return res.status(400).json({ message: 'userId is required' });
+    }
+    if (!roleId) {
+      return res.status(400).json({ message: 'roleId is required' });
+    }
+
+    const summary = await approveUserWithRole(userId, roleId);
+    res.json(summary);
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    if (error?.statusCode === 404) {
+      return res.status(404).json({ message: error.message ?? 'Role not found' });
+    }
+    console.error('Failed to approve user', error);
+    res.status(500).json({ message: 'Failed to approve user' });
+  }
 });
 
-// Disapprove a user
 router.post('/disapprove-user', async (req, res) => {
-  const { userId } = req.body;
-  const user = await prisma.user.update({ where: { id: userId }, data: { status: UserStatus.SUSPENDED } });
-  // Notification stub
-  res.json(user);
+  try {
+    const userId = toStringOrNull(req.body?.userId);
+    if (!userId) {
+      return res.status(400).json({ message: 'userId is required' });
+    }
+
+    const targetStatus = normalizeUserStatus(req.body?.status) ?? UserStatus.SUSPENDED;
+    const summary = await updateUserStatus(userId, targetStatus);
+    res.json(summary);
+  } catch (error: any) {
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    console.error('Failed to disapprove user', error);
+    res.status(500).json({ message: 'Failed to disapprove user' });
+  }
+});
+
+// -------- Fleet management (admin) --------
+router.get('/fleet/vehicles', async (req, res) => {
+  try {
+    const status = normalizeVehicleStatus(req.query.status);
+    const registrationStatus = normalizeRegistrationStatus(req.query.registrationStatus);
+    const insuranceStatus = normalizeInsuranceStatus(req.query.insuranceStatus);
+    const ownerId = toStringOrNull(req.query.ownerId);
+    const driverId = toStringOrNull(req.query.driverId);
+    const routeId = toStringOrNull(req.query.routeId);
+    const searchTerm = toStringOrNull(req.query.search);
+
+    const where: Prisma.VehicleWhereInput = {};
+    if (status) where.status = status;
+    if (registrationStatus) where.registrationStatus = registrationStatus;
+    if (insuranceStatus) where.insuranceStatus = insuranceStatus;
+    if (ownerId) where.ownerId = ownerId;
+    if (driverId) where.driverId = driverId;
+    if (routeId) where.routeId = routeId;
+
+    if (searchTerm) {
+      where.OR = [
+        { plateNumber: { contains: searchTerm, mode: 'insensitive' } },
+        { model: { contains: searchTerm, mode: 'insensitive' } },
+        { vehicleType: { contains: searchTerm, mode: 'insensitive' } },
+        { owner: { firstName: { contains: searchTerm, mode: 'insensitive' } } },
+        { owner: { lastName: { contains: searchTerm, mode: 'insensitive' } } },
+        { driver: { firstName: { contains: searchTerm, mode: 'insensitive' } } },
+        { driver: { lastName: { contains: searchTerm, mode: 'insensitive' } } }
+      ];
+    }
+
+    const vehicles = await prisma.vehicle.findMany({
+      where,
+      orderBy: { dateAdded: 'desc' },
+      include: vehicleSummaryInclude
+    });
+    const items = vehicles.map(mapVehicleToSummary);
+
+    res.json({
+      items,
+      total: items.length,
+      appliedFilters: {
+        status: status ?? null,
+        registrationStatus: registrationStatus ?? null,
+        insuranceStatus: insuranceStatus ?? null,
+        ownerId: ownerId ?? null,
+        driverId: driverId ?? null,
+        routeId: routeId ?? null,
+        search: searchTerm ?? null
+      }
+    });
+  } catch (error) {
+    console.error('Failed to list fleet vehicles', error);
+    res.status(500).json({ message: 'Failed to list vehicles' });
+  }
+});
+
+router.get('/fleet/vehicles/:vehicleId', async (req, res) => {
+  try {
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: req.params.vehicleId },
+      include: vehicleSummaryInclude
+    });
+
+    if (!vehicle) {
+      return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    res.json(mapVehicleToSummary(vehicle));
+  } catch (error) {
+    console.error('Failed to fetch vehicle', error);
+    res.status(500).json({ message: 'Failed to fetch vehicle details' });
+  }
+});
+
+router.post('/fleet/vehicles', async (req, res) => {
+  try {
+    const body = req.body ?? {};
+    const ownerId = toStringOrNull(body.ownerId);
+    const plateNumber = toStringOrNull(body.plateNumber);
+
+    if (!ownerId) {
+      return res.status(400).json({ message: 'ownerId is required' });
+    }
+    if (!plateNumber) {
+      return res.status(400).json({ message: 'plateNumber is required' });
+    }
+
+    const [owner, route, driver] = await Promise.all([
+      prisma.user.findUnique({ where: { id: ownerId }, select: { id: true } }),
+      toStringOrNull(body.routeId)
+        ? prisma.route.findUnique({
+            where: { id: toStringOrNull(body.routeId)! },
+            select: { id: true }
+          })
+        : Promise.resolve(null),
+      toStringOrNull(body.driverId)
+        ? prisma.user.findUnique({
+            where: { id: toStringOrNull(body.driverId)! },
+            select: { id: true }
+          })
+        : Promise.resolve(null)
+    ]);
+
+    if (!owner) {
+      return res.status(404).json({ message: 'Owner not found' });
+    }
+    if (toStringOrNull(body.routeId) && !route) {
+      return res.status(404).json({ message: 'Route not found' });
+    }
+    if (toStringOrNull(body.driverId) && !driver) {
+      return res.status(404).json({ message: 'Driver not found' });
+    }
+
+    const status = normalizeVehicleStatus(body.status) ?? VehicleStatus.INACTIVE;
+    const registrationStatus = normalizeRegistrationStatus(body.registrationStatus) ?? RegistrationStatus.PENDING;
+    const insuranceStatus = normalizeInsuranceStatus(body.insuranceStatus) ?? InsuranceStatus.PENDING;
+    const routeId = toStringOrNull(body.routeId);
+    const driverId = toStringOrNull(body.driverId);
+    const capacity = toIntValue(body.capacity);
+    const yearOfManufacture = toIntValue(body.yearOfManufacture);
+    const premium = toDecimalValue(body.premium);
+    const insuranceExpiry = parseDateValue(body.insuranceExpiry);
+    const registrationExpiry = parseDateValue(body.registrationExpiry);
+
+    const model = toStringOrNull(body.model);
+    const vehicleType = toStringOrNull(body.vehicleType);
+    const chassisNumber = toStringOrNull(body.chassisNumber);
+    const engineNumber = toStringOrNull(body.engineNumber);
+    const insuranceProvider = toStringOrNull(body.insuranceProvider);
+    const policyType = toStringOrNull(body.policyType);
+
+    const now = new Date();
+    const vehicle = await prisma.$transaction(async (tx) => {
+      if (driverId) {
+        await tx.vehicleDriverAssignment.updateMany({
+          where: { driverId, releasedAt: null },
+          data: { releasedAt: now }
+        });
+      }
+
+      const created = await tx.vehicle.create({
+        data: {
+          ownerId,
+          plateNumber,
+          model: model ?? undefined,
+          vehicleType: vehicleType ?? undefined,
+          capacity: capacity ?? undefined,
+          chassisNumber: chassisNumber ?? undefined,
+          engineNumber: engineNumber ?? undefined,
+          yearOfManufacture: yearOfManufacture ?? undefined,
+          routeId: routeId ?? undefined,
+          status,
+          driverId: driverId ?? undefined,
+          insuranceStatus,
+          insuranceProvider: insuranceProvider ?? undefined,
+          policyType: policyType ?? undefined,
+          premium: premium ?? undefined,
+          insuranceExpiry: insuranceExpiry ?? undefined,
+          registrationStatus,
+          registrationExpiry: registrationExpiry ?? undefined
+        },
+        include: vehicleSummaryInclude
+      });
+
+      if (driverId) {
+        await tx.vehicleDriverAssignment.create({
+          data: { vehicleId: created.id, driverId, assignedAt: now }
+        });
+      }
+
+      return created;
+    });
+
+    res.status(201).json(mapVehicleToSummary(vehicle));
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      return res.status(409).json({ message: 'Vehicle with this plate number already exists' });
+    }
+    console.error('Failed to create vehicle', error);
+    res.status(500).json({ message: 'Failed to create vehicle' });
+  }
+});
+
+router.patch('/fleet/vehicles/:vehicleId', async (req, res) => {
+  const { vehicleId } = req.params;
+
+  try {
+    const existing = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { id: true, driverId: true }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    const body = req.body ?? {};
+    const updateData: Prisma.VehicleUpdateInput = {};
+
+    if (Object.prototype.hasOwnProperty.call(body, 'plateNumber')) {
+      const plateNumber = toStringOrNull(body.plateNumber);
+      if (!plateNumber) {
+        return res.status(400).json({ message: 'plateNumber must be a non-empty string' });
+      }
+      updateData.plateNumber = plateNumber;
+    }
+
+    const modelUpdate = toNullableStringUpdate(body.model);
+    if (modelUpdate !== undefined) {
+      updateData.model = modelUpdate;
+    }
+
+    const typeUpdate = toNullableStringUpdate(body.vehicleType);
+    if (typeUpdate !== undefined) {
+      updateData.vehicleType = typeUpdate;
+    }
+
+    const chassisUpdate = toNullableStringUpdate(body.chassisNumber);
+    if (chassisUpdate !== undefined) {
+      updateData.chassisNumber = chassisUpdate;
+    }
+
+    const engineUpdate = toNullableStringUpdate(body.engineNumber);
+    if (engineUpdate !== undefined) {
+      updateData.engineNumber = engineUpdate;
+    }
+
+    const capacityUpdate = toIntUpdateValue(body.capacity);
+    if (capacityUpdate !== undefined) {
+      updateData.capacity = capacityUpdate;
+    }
+
+    const yearUpdate = toIntUpdateValue(body.yearOfManufacture);
+    if (yearUpdate !== undefined) {
+      updateData.yearOfManufacture = yearUpdate;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+      const status = normalizeVehicleStatus(body.status);
+      if (!status) {
+        return res.status(400).json({ message: 'Invalid vehicle status' });
+      }
+      updateData.status = status;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'registrationStatus')) {
+      const registrationStatus = normalizeRegistrationStatus(body.registrationStatus);
+      if (!registrationStatus) {
+        return res.status(400).json({ message: 'Invalid registration status' });
+      }
+      updateData.registrationStatus = registrationStatus;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'insuranceStatus')) {
+      const insuranceStatus = normalizeInsuranceStatus(body.insuranceStatus);
+      if (!insuranceStatus) {
+        return res.status(400).json({ message: 'Invalid insurance status' });
+      }
+      updateData.insuranceStatus = insuranceStatus;
+    }
+
+    const insuranceExpiryUpdate = parseDateUpdateValue(body.insuranceExpiry);
+    if (insuranceExpiryUpdate !== undefined) {
+      updateData.insuranceExpiry = insuranceExpiryUpdate;
+    }
+
+    const registrationExpiryUpdate = parseDateUpdateValue(body.registrationExpiry);
+    if (registrationExpiryUpdate !== undefined) {
+      updateData.registrationExpiry = registrationExpiryUpdate;
+    }
+
+    const insuranceProviderUpdate = toNullableStringUpdate(body.insuranceProvider);
+    if (insuranceProviderUpdate !== undefined) {
+      updateData.insuranceProvider = insuranceProviderUpdate;
+    }
+
+    const policyTypeUpdate = toNullableStringUpdate(body.policyType);
+    if (policyTypeUpdate !== undefined) {
+      updateData.policyType = policyTypeUpdate;
+    }
+
+    const premiumUpdate = toDecimalUpdateValue(body.premium);
+    if (premiumUpdate !== undefined) {
+      updateData.premium = premiumUpdate;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'ownerId')) {
+      const ownerId = toStringOrNull(body.ownerId);
+      if (!ownerId) {
+        return res.status(400).json({ message: 'ownerId must be a non-empty string' });
+      }
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true } });
+      if (!owner) {
+        return res.status(404).json({ message: 'Owner not found' });
+      }
+      updateData.owner = { connect: { id: ownerId } };
+    }
+
+    let routeIdUpdate: string | null | undefined;
+    if (Object.prototype.hasOwnProperty.call(body, 'routeId')) {
+      if (body.routeId === null) {
+        routeIdUpdate = null;
+      } else {
+        routeIdUpdate = toStringOrNull(body.routeId);
+        if (!routeIdUpdate) {
+          return res.status(400).json({ message: 'routeId must be a non-empty string or null' });
+        }
+        const route = await prisma.route.findUnique({ where: { id: routeIdUpdate }, select: { id: true } });
+        if (!route) {
+          return res.status(404).json({ message: 'Route not found' });
+        }
+      }
+      if (routeIdUpdate === null) {
+        updateData.route = { disconnect: true };
+      } else {
+        updateData.route = { connect: { id: routeIdUpdate } };
+      }
+    }
+
+    let driverIdUpdate: string | null | undefined;
+    const driverFieldProvided = Object.prototype.hasOwnProperty.call(body, 'driverId');
+    if (driverFieldProvided) {
+      if (body.driverId === null) {
+        driverIdUpdate = null;
+      } else {
+        driverIdUpdate = toStringOrNull(body.driverId);
+        if (!driverIdUpdate) {
+          return res.status(400).json({ message: 'driverId must be a non-empty string or null' });
+        }
+        const driver = await prisma.user.findUnique({ where: { id: driverIdUpdate }, select: { id: true } });
+        if (!driver) {
+          return res.status(404).json({ message: 'Driver not found' });
+        }
+      }
+      if (driverIdUpdate === null) {
+        updateData.driver = { disconnect: true };
+      } else {
+        updateData.driver = { connect: { id: driverIdUpdate } };
+      }
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: 'No updatable fields were provided' });
+    }
+
+    const now = new Date();
+    const updated = await prisma.$transaction(async (tx) => {
+      if (driverFieldProvided && driverIdUpdate !== existing.driverId) {
+        await tx.vehicleDriverAssignment.updateMany({
+          where: { vehicleId, releasedAt: null },
+          data: { releasedAt: now }
+        });
+
+        if (driverIdUpdate) {
+          await tx.vehicleDriverAssignment.updateMany({
+            where: { driverId: driverIdUpdate, releasedAt: null },
+            data: { releasedAt: now }
+          });
+        }
+      }
+
+      const result = await tx.vehicle.update({
+        where: { id: vehicleId },
+        data: updateData,
+        include: vehicleSummaryInclude
+      });
+
+      if (driverFieldProvided && driverIdUpdate && driverIdUpdate !== existing.driverId) {
+        await tx.vehicleDriverAssignment.create({
+          data: { vehicleId, driverId: driverIdUpdate, assignedAt: now }
+        });
+      }
+
+      return result;
+    });
+
+    res.json(mapVehicleToSummary(updated));
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      return res.status(409).json({ message: 'Vehicle with this plate number already exists' });
+    }
+    if (error?.code === 'P2025') {
+      return res.status(404).json({ message: 'Vehicle not found' });
+    }
+    console.error('Failed to update vehicle', error);
+    res.status(500).json({ message: 'Failed to update vehicle' });
+  }
+});
+
+router.delete('/fleet/vehicles/:vehicleId', async (req, res) => {
+  const { vehicleId } = req.params;
+  try {
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { id: true }
+    });
+
+    if (!vehicle) {
+      return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    const [loans, payments, savings, transactions] = await prisma.$transaction([
+      prisma.loan.count({ where: { vehicleId } }),
+      prisma.payment.count({ where: { vehicleId } }),
+      prisma.savingsAccount.count({ where: { vehicleId } }),
+      prisma.transaction.count({ where: { vehicleId } })
+    ]);
+
+    if (loans || payments || savings || transactions) {
+      return res.status(409).json({
+        message: 'Cannot delete vehicle with existing financial records',
+        details: {
+          loans,
+          payments,
+          savingsAccounts: savings,
+          transactions
+        }
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.vehicleDriverAssignment.deleteMany({ where: { vehicleId } });
+      await tx.insurancePolicy.deleteMany({ where: { vehicleId } });
+      await tx.vehicle.delete({ where: { id: vehicleId } });
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    console.error('Failed to delete vehicle', error);
+    res.status(500).json({ message: 'Failed to delete vehicle' });
+  }
+});
+
+router.post('/fleet/vehicles/:vehicleId/assign-driver', async (req, res) => {
+  const { vehicleId } = req.params;
+  const driverId = toStringOrNull(req.body?.driverId);
+  const assignedAtInput = req.body?.assignedAt;
+
+  if (!driverId) {
+    return res.status(400).json({ message: 'driverId is required' });
+  }
+
+  try {
+    const [vehicle, driver] = await Promise.all([
+      prisma.vehicle.findUnique({
+        where: { id: vehicleId },
+        select: { id: true, driverId: true }
+      }),
+      prisma.user.findUnique({
+        where: { id: driverId },
+        select: { id: true }
+      })
+    ]);
+
+    if (!vehicle) {
+      return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    if (!driver) {
+      return res.status(404).json({ message: 'Driver not found' });
+    }
+
+    const parsedAssignedAt = parseDateValue(assignedAtInput);
+    const assignedAt = parsedAssignedAt ?? new Date();
+
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.vehicleDriverAssignment.updateMany({
+        where: { vehicleId, releasedAt: null },
+        data: { releasedAt: assignedAt }
+      });
+
+      await tx.vehicleDriverAssignment.updateMany({
+        where: { driverId, releasedAt: null },
+        data: { releasedAt: assignedAt }
+      });
+
+      const updatedVehicle = await tx.vehicle.update({
+        where: { id: vehicleId },
+        data: { driverId },
+        include: vehicleSummaryInclude
+      });
+
+      const assignment = await tx.vehicleDriverAssignment.create({
+        data: { vehicleId, driverId, assignedAt }
+      });
+
+      return { updatedVehicle, assignment };
+    });
+
+    res.status(201).json({
+      vehicle: mapVehicleToSummary(result.updatedVehicle),
+      assignment: {
+        id: result.assignment.id,
+        vehicleId,
+        driverId,
+        assignedAt: result.assignment.assignedAt
+      }
+    });
+  } catch (error) {
+    console.error('Failed to assign driver', error);
+    res.status(500).json({ message: 'Failed to assign driver' });
+  }
+});
+
+router.post('/fleet/vehicles/:vehicleId/insurance/pay', async (req, res) => {
+  const { vehicleId } = req.params;
+
+  try {
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { id: true, ownerId: true }
+    });
+
+    if (!vehicle) {
+      return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    const amountDecimal = toDecimalValue(req.body?.amount);
+    const amountNumber = amountDecimal ? Number(amountDecimal) : null;
+
+    if (!amountDecimal || !amountNumber || amountNumber <= 0) {
+      return res.status(400).json({ message: 'amount must be a positive number' });
+    }
+
+    const paymentDate = parseDateValue(req.body?.paymentDate) ?? new Date();
+    const startDate = parseDateValue(req.body?.startDate) ?? paymentDate;
+    const expiryDate = parseDateValue(req.body?.expiryDate);
+    const provider = toStringOrNull(req.body?.provider);
+    const policyType = toStringOrNull(req.body?.policyType);
+    const mpesaReference = toStringOrNull(req.body?.mpesaReference);
+
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.insurancePolicy.updateMany({
+        where: { vehicleId, status: InsuranceStatus.ACTIVE },
+        data: { status: InsuranceStatus.EXPIRED }
+      });
+
+      const payment = await tx.payment.create({
+        data: {
+          userId: vehicle.ownerId,
+          vehicleId,
+          totalAmount: amountDecimal,
+          status: PaymentStatus.COMPLETED,
+          paymentDate,
+          mpesaReference: mpesaReference ?? undefined
+        }
+      });
+
+      await tx.paymentAllocation.create({
+        data: {
+          paymentId: payment.id,
+          category: PaymentCategory.INSURANCE,
+          amount: amountDecimal
+        }
+      });
+
+      const policy = await tx.insurancePolicy.create({
+        data: {
+          vehicleId,
+          provider: provider ?? undefined,
+          policyType: policyType ?? undefined,
+          premiumAmount: amountDecimal,
+          startDate,
+          expiryDate: expiryDate ?? undefined,
+          status: InsuranceStatus.ACTIVE
+        }
+      });
+
+      const updatedVehicle = await tx.vehicle.update({
+        where: { id: vehicleId },
+        data: {
+          insuranceStatus: InsuranceStatus.ACTIVE,
+          insuranceProvider: provider ?? undefined,
+          policyType: policyType ?? undefined,
+          premium: amountDecimal,
+          insuranceExpiry: expiryDate ?? undefined
+        },
+        include: vehicleSummaryInclude
+      });
+
+      return { payment, policy, updatedVehicle };
+    });
+
+    res.status(201).json({
+      vehicle: mapVehicleToSummary(result.updatedVehicle),
+      payment: {
+        id: result.payment.id,
+        paymentDate: result.payment.paymentDate,
+        totalAmount: Number(result.payment.totalAmount),
+        status: result.payment.status,
+        mpesaReference: result.payment.mpesaReference ?? null
+      },
+      policy: {
+        id: result.policy.id,
+        provider: result.policy.provider ?? null,
+        policyType: result.policy.policyType ?? null,
+        premiumAmount: Number(result.policy.premiumAmount ?? 0),
+        startDate: result.policy.startDate ?? null,
+        expiryDate: result.policy.expiryDate ?? null,
+        status: result.policy.status
+      }
+    });
+  } catch (error) {
+    console.error('Failed to record insurance payment', error);
+    res.status(500).json({ message: 'Failed to record insurance payment' });
+  }
+});
+
+router.get('/loans', async (req, res) => {
+  try {
+    const status = normalizeLoanStatus(req.query.status);
+    const type = normalizeLoanType(req.query.type);
+    const search = toStringOrNull(req.query.search);
+
+    const where: Prisma.LoanWhereInput = {};
+    if (status) {
+      where.status = status;
+    }
+    if (type) {
+      where.type = type;
+    }
+    if (search) {
+      where.OR = [
+        { purpose: { contains: search, mode: 'insensitive' } },
+        {
+          applicant: {
+            OR: [
+              { firstName: { contains: search, mode: 'insensitive' } },
+              { lastName: { contains: search, mode: 'insensitive' } }
+            ]
+          }
+        },
+        {
+          vehicle: {
+            plateNumber: { contains: search, mode: 'insensitive' }
+          }
+        }
+      ];
+    }
+
+    const loans = await prisma.loan.findMany({
+      where,
+      orderBy: { applicationDate: 'desc' },
+      include: loanSummaryInclude
+    });
+
+    const statusCounts = Object.values(LoanStatus).reduce<Record<LoanStatus, number>>((acc, loanStatus) => {
+      acc[loanStatus] = 0;
+      return acc;
+    }, {} as Record<LoanStatus, number>);
+
+    const typeCounts = Object.values(LoanType).reduce<Record<LoanType, number>>((acc, loanType) => {
+      acc[loanType] = 0;
+      return acc;
+    }, {} as Record<LoanType, number>);
+
+    loans.forEach(loan => {
+      statusCounts[loan.status] = (statusCounts[loan.status] ?? 0) + 1;
+      typeCounts[loan.type] = (typeCounts[loan.type] ?? 0) + 1;
+    });
+
+    res.json({
+      items: loans.map(mapLoanToSummary),
+      totals: {
+        total: loans.length,
+        byStatus: statusCounts,
+        byType: typeCounts
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load admin loans', error);
+    res.status(500).json({ message: 'Failed to load loans' });
+  }
+});
+
+router.get('/loans/:loanId', async (req, res) => {
+  try {
+    const loan = await prisma.loan.findUnique({
+      where: { id: req.params.loanId },
+      include: loanSummaryInclude
+    });
+
+    if (!loan) {
+      return res.status(404).json({ message: 'Loan not found' });
+    }
+
+    res.json(mapLoanToSummary(loan));
+  } catch (error) {
+    console.error('Failed to load loan', error);
+    res.status(500).json({ message: 'Failed to load loan' });
+  }
+});
+
+router.patch('/loans/:loanId', async (req: AuthRequest, res) => {
+  try {
+    const { loanId } = req.params;
+    const loan = await prisma.loan.findUnique({ where: { id: loanId } });
+    if (!loan) {
+      return res.status(404).json({ message: 'Loan not found' });
+    }
+
+    const body = req.body ?? {};
+    const updateData: Prisma.LoanUpdateInput = {};
+
+    if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+      const normalizedStatus = normalizeLoanStatus(body.status);
+      if (!normalizedStatus) {
+        return res.status(400).json({ message: 'Invalid loan status' });
+      }
+      updateData.status = normalizedStatus;
+
+      if (normalizedStatus === LoanStatus.APPROVED || normalizedStatus === LoanStatus.DISBURSED) {
+        updateData.approvedAt = new Date();
+        if (req.user?.id) {
+          updateData.approvedBy = { connect: { id: req.user.id } };
+        }
+      } else {
+        updateData.approvedAt = null;
+        updateData.approvedBy = { disconnect: true };
+      }
+    }
+
+    const creditScoreUpdate = toIntUpdateValue(body.creditScore);
+    if (creditScoreUpdate !== undefined) {
+      updateData.creditScore = creditScoreUpdate;
+    }
+
+    const monthlyIncomeUpdate = toDecimalUpdateValue(body.monthlyIncome);
+    if (monthlyIncomeUpdate !== undefined) {
+      updateData.monthlyIncome = monthlyIncomeUpdate;
+    }
+
+    const existingLoansUpdate = toDecimalUpdateValue(body.existingLoans);
+    if (existingLoansUpdate !== undefined) {
+      updateData.existingLoans = existingLoansUpdate;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'urgency')) {
+      updateData.urgency = toStringOrNull(body.urgency);
+    }
+
+    const expectedRepaymentUpdate = parseDateUpdateValue(body.expectedRepaymentDate);
+    if (expectedRepaymentUpdate !== undefined) {
+      updateData.expectedRepaymentDate = expectedRepaymentUpdate;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ message: 'No valid fields provided for update' });
+    }
+
+    const updatedLoan = await prisma.loan.update({
+      where: { id: loanId },
+      data: updateData,
+      include: loanSummaryInclude
+    });
+
+    res.json(mapLoanToSummary(updatedLoan));
+  } catch (error) {
+    console.error('Failed to update loan', error);
+    res.status(500).json({ message: 'Failed to update loan' });
+  }
+});
+
+router.get('/dashboard/users', async (_req, res) => {
+  try {
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: userSummaryInclude
+    });
+    const statusGroups = await prisma.user.groupBy({ by: ['status'], _count: { _all: true } });
+
+    const items = users.map(mapUserToSummary);
+    const statusCounts: Record<UserStatus, number> = {
+      [UserStatus.ACTIVE]: 0,
+      [UserStatus.PENDING]: 0,
+      [UserStatus.SUSPENDED]: 0,
+      [UserStatus.INACTIVE]: 0
+    };
+
+    statusGroups.forEach(group => {
+      statusCounts[group.status] = group._count._all;
+    });
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        byStatus: statusCounts
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load dashboard users', error);
+    res.status(500).json({ message: 'Failed to load users data' });
+  }
+});
+
+router.get('/dashboard/vehicles', async (_req, res) => {
+  try {
+    const vehicles = await prisma.vehicle.findMany({
+      orderBy: { dateAdded: 'desc' },
+      include: vehicleSummaryInclude
+    });
+    const statusGroups = await prisma.vehicle.groupBy({ by: ['status'], _count: { _all: true } });
+    const registrationGroups = await prisma.vehicle.groupBy({
+      by: ['registrationStatus'],
+      _count: { _all: true }
+    });
+
+    const items = vehicles.map(mapVehicleToSummary);
+
+    const statusCounts: Record<VehicleStatus, number> = {
+      [VehicleStatus.ACTIVE]: 0,
+      [VehicleStatus.INACTIVE]: 0,
+      [VehicleStatus.MAINTENANCE]: 0,
+      [VehicleStatus.DECOMMISSIONED]: 0
+    };
+    statusGroups.forEach(group => {
+      statusCounts[group.status] = group._count._all;
+    });
+
+    const registrationCounts: Record<RegistrationStatus, number> = {
+      [RegistrationStatus.VALID]: 0,
+      [RegistrationStatus.EXPIRED]: 0,
+      [RegistrationStatus.PENDING]: 0
+    };
+    registrationGroups.forEach(group => {
+      registrationCounts[group.registrationStatus] = group._count._all;
+    });
+
+    const aggregateMetrics = items.reduce(
+      (acc, vehicle) => {
+        acc.savingsBalance += vehicle.metrics.savingsBalance;
+        acc.outstandingLoanAmount += vehicle.metrics.outstandingLoanAmount;
+        acc.activeLoanCount += vehicle.metrics.activeLoanCount;
+        return acc;
+      },
+      { savingsBalance: 0, outstandingLoanAmount: 0, activeLoanCount: 0 }
+    );
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        byStatus: statusCounts,
+        byRegistrationStatus: registrationCounts,
+        metrics: aggregateMetrics
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load dashboard vehicles', error);
+    res.status(500).json({ message: 'Failed to load vehicles data' });
+  }
+});
+
+router.get('/dashboard/savings', async (_req, res) => {
+  try {
+    const accounts = await prisma.savingsAccount.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: savingsAccountSummaryInclude
+    });
+    const totalsAggregate = await prisma.savingsAccount.aggregate({
+      _sum: {
+        balance: true,
+        monthlyTarget: true
+      }
+    });
+    const typeGroups = await prisma.savingsAccount.groupBy({
+      by: ['accountType'],
+      _count: { _all: true },
+      _sum: { balance: true }
+    });
+
+    const items = accounts.map(mapSavingsAccountToSummary);
+
+    const byType = typeGroups.reduce<Record<string, { count: number; balance: number }>>((acc, group) => {
+      const key = group.accountType ?? 'UNSPECIFIED';
+      acc[key] = {
+        count: group._count._all,
+        balance: decimalToNumber(group._sum.balance) ?? 0
+      };
+      return acc;
+    }, {});
+
+    const totalBalance = decimalToNumber(totalsAggregate._sum.balance) ?? 0;
+    const totalMonthlyTarget = decimalToNumber(totalsAggregate._sum.monthlyTarget) ?? 0;
+
+    const activeRecently = items.filter(account => {
+      if (!account.lastDeposit) return false;
+      const diffMs = Date.now() - account.lastDeposit.getTime();
+      return diffMs <= 30 * 24 * 60 * 60 * 1000;
+    }).length;
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        sum: totalBalance,
+        monthlyTarget: totalMonthlyTarget,
+        activeRecently,
+        byType
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load savings data', error);
+    res.status(500).json({ message: 'Failed to load savings data' });
+  }
+});
+
+router.get('/dashboard/loans', async (_req, res) => {
+  try {
+    const loans = await prisma.loan.findMany({
+      orderBy: { applicationDate: 'desc' },
+      include: loanSummaryInclude
+    });
+    const statusGroups = await prisma.loan.groupBy({ by: ['status'], _count: { _all: true } });
+    const totalAggregate = await prisma.loan.aggregate({ _sum: { amount: true } });
+    const outstandingAggregate = await prisma.loan.aggregate({
+      where: { status: { notIn: [LoanStatus.REPAID, LoanStatus.REJECTED] } },
+      _sum: { amount: true }
+    });
+
+    const items = loans.map(mapLoanToSummary);
+
+    const statusCounts: Record<LoanStatus, number> = {
+      [LoanStatus.PENDING]: 0,
+      [LoanStatus.APPROVED]: 0,
+      [LoanStatus.REJECTED]: 0,
+      [LoanStatus.DISBURSED]: 0,
+      [LoanStatus.REPAID]: 0,
+      [LoanStatus.DEFAULTED]: 0
+    };
+    statusGroups.forEach(group => {
+      statusCounts[group.status] = group._count._all;
+    });
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        byStatus: statusCounts,
+        sum: decimalToNumber(totalAggregate._sum.amount) ?? 0,
+        outstanding: decimalToNumber(outstandingAggregate._sum.amount) ?? 0
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load dashboard loans', error);
+    res.status(500).json({ message: 'Failed to load loans data' });
+  }
+});
+
+router.get('/dashboard/insurance', async (_req, res) => {
+  try {
+    const policies = await prisma.insurancePolicy.findMany({
+      orderBy: { expiryDate: 'asc' },
+      include: insuranceSummaryInclude
+    });
+    const statusGroups = await prisma.insurancePolicy.groupBy({ by: ['status'], _count: { _all: true } });
+
+    const items = policies.map(mapInsurancePolicyToSummary);
+
+    const statusCounts: Record<InsuranceStatus, number> = {
+      [InsuranceStatus.ACTIVE]: 0,
+      [InsuranceStatus.EXPIRED]: 0,
+      [InsuranceStatus.PENDING]: 0
+    };
+    statusGroups.forEach(group => {
+      statusCounts[group.status] = group._count._all;
+    });
+
+    const expiringSoon = items.filter(policy => typeof policy.daysToExpiry === 'number' && policy.daysToExpiry >= 0 && policy.daysToExpiry <= 30).length;
+
+    res.json({
+      items,
+      totals: {
+        total: items.length,
+        byStatus: statusCounts,
+        expiringSoon
+      }
+    });
+  } catch (error) {
+    console.error('Failed to load dashboard insurance policies', error);
+    res.status(500).json({ message: 'Failed to load insurance data' });
+  }
 });
 
 export default router;

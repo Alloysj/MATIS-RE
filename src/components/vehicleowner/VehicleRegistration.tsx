@@ -18,10 +18,10 @@ import {
 } from 'lucide-react';
 import { API_BASE, authHeaders } from '../../services/api';
 import { useEffect } from 'react';
-import { getRoutes, RouteItem } from '../../services/matatus';
+import { useVehicleOwnerData } from '../../context/VehicleOwnerDataContext';
 
 interface VehicleRegistrationProps {
-  user: { name: string; role: string; phone: string } | null;
+  user: { id?: string; name: string; role: string; phone: string } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -41,24 +41,16 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [routes, setRoutes] = useState<RouteItem[]>([]);
-  const [routesLoading, setRoutesLoading] = useState(false);
+  const { matatu, loadMatatu } = useVehicleOwnerData();
+  const routes = matatu.data?.routes ?? [];
+  const routesLoading = matatu.status === "loading" && !matatu.data;
+  const routesError = matatu.error;
 
   useEffect(() => {
-    const loadRoutes = async () => {
-      try {
-        setRoutesLoading(true);
-        const data = await getRoutes();
-        setRoutes(data);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to load routes', e);
-      } finally {
-        setRoutesLoading(false);
-      }
-    };
-    loadRoutes();
-  }, []);
+    void loadMatatu();
+  }, [loadMatatu]);
+
+
 
   const vehicleTypes = [
     'Toyota Hiace',
@@ -384,9 +376,19 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
                   <MapPin className="w-4 h-4 mr-1" />
                   Operating Route *
                 </Label>
-                <Select value={formData.routeId} onValueChange={(value) => handleInputChange('routeId', value)}>
+                {routesError && (
+                  <p className="text-sm text-red-300">{routesError}</p>
+                )}
+                {routesLoading && routes.length === 0 && (
+                  <p className="text-sm text-white/60">Loading available routes…</p>
+                )}
+                <Select
+                  disabled={routesLoading || routes.length === 0}
+                  value={formData.routeId}
+                  onValueChange={(value) => handleInputChange('routeId', value)}
+                >
                   <SelectTrigger className="bg-white/10 border-white/30 text-white">
-                    <SelectValue placeholder={routesLoading ? 'Loading routes...' : 'Select operating route'} />
+                    <SelectValue placeholder={routesLoading ? "Loading routes..." : "Select operating route"} />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-900 border-white/30 text-white">
                     {routes.map((r) => {
@@ -397,6 +399,9 @@ export function VehicleRegistration({ user, onNavigate, onLogout }: VehicleRegis
                     })}
                   </SelectContent>
                 </Select>
+                {!routesLoading && routes.length === 0 && !routesError && (
+                  <p className="text-sm text-white/60">No routes available. Please check back later.</p>
+                )}
                 {errors.routeId && (
                   <p className="text-red-400 text-sm">{errors.routeId}</p>
                 )}

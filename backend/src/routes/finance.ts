@@ -20,6 +20,67 @@ const MPESA_CANCELLED_CODE = 1032;
 
 const decimal = (value: number | string | Prisma.Decimal) => new Prisma.Decimal(value);
 
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+type MonthBucket = {
+  start: Date;
+  end: Date;
+  label: string;
+  key: string;
+};
+
+const DEFAULT_MONTH_RANGE = 6;
+
+const clampNumber = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const decimalToNumber = (value: Prisma.Decimal | number | string | null | undefined): number => {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value === 'number') {
+    return value;
+  }
+  const parsed = Number.parseFloat(String(value));
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const roundCurrency = (value: number) => Number.parseFloat(value.toFixed(2));
+
+const createMonthBuckets = (monthCount: number): MonthBucket[] => {
+  const normalized = clampNumber(Math.floor(monthCount), 1, 24);
+  const buckets: MonthBucket[] = [];
+  const now = new Date();
+  const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  for (let i = normalized - 1; i >= 0; i -= 1) {
+    const start = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - i, 1));
+    const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+    buckets.push({
+      start,
+      end,
+      label: MONTH_NAMES[start.getUTCMonth()],
+      key: `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`
+    });
+  }
+  return buckets;
+};
+
+const paymentCategoryLabels: Record<PaymentCategory, string> = {
+  [PaymentCategory.SAVINGS]: 'Savings',
+  [PaymentCategory.LOAN_REPAYMENT]: 'Loan Repayment',
+  [PaymentCategory.INSURANCE]: 'Insurance',
+  [PaymentCategory.OPERATIONS]: 'Operations'
+};
+
+const transactionTypeLabels: Record<TransactionType, string> = {
+  [TransactionType.DEPOSIT]: 'Savings Deposit',
+  [TransactionType.LOAN_REPAYMENT]: 'Loan Repayment',
+  [TransactionType.INSURANCE_PAYMENT]: 'Insurance Payment',
+  [TransactionType.OPERATIONS_FEE]: 'Operations Deduction',
+  [TransactionType.SALARY]: 'Salary',
+  [TransactionType.EXPENSE]: 'Expense'
+};
+
 function ensureMpesaConfig() {
   if (!MPESA_CONSUMER_KEY || !MPESA_CONSUMER_SECRET || !MPESA_SHORTCODE || !MPESA_PASSKEY) {
     throw new Error('MPESA credentials are not fully configured. Please check environment variables.');
@@ -565,6 +626,160 @@ router.post('/mpesaCallback', async (req, res) => {
     console.error('Failed to process MPESA callback', error);
     return res.status(200).json({ status: 'error', message: 'Callback processing failed' });
   }
+});
+
+
+router.get('/dashboard/:userId/savings-trend', authenticate, async (req: AuthRequest, res) => {
+  const { userId } = req.params;
+  if (req.user?.id !== userId) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+  const monthsParam = Array.isArray(req.query.months) ? req.query.months[0] : req.query.months;
+  const requestedMonths = monthsParam ? Number.parseInt(String(monthsParam), 10) : Number.NaN;
+  const buckets = createMonthBuckets(Number.isFinite(requestedMonths) ? requestedMonths : DEFAULT_MONTH_RANGE);
+  const rangeStart = buckets[0]?.start;
+  const rangeEnd = buckets[buckets.length - 1]?.end;
+  if (!rangeStart || !rangeEnd) {
+    return res.json({ months: [] });
+  }
+
+  const transactions = await prisma.transaction.findMany({
+    where: {
+      userId,
+      type: TransactionType.DEPOSIT,
+      date: { gte: rangeStart, lte: rangeEnd }
+    },
+    select: { amount: true, date: true }
+  });
+
+  const months = buckets.map((bucket) => {
+    const total = transactions
+      .filter((tx) => tx.date >= bucket.start && tx.date <= bucket.end)
+      .reduce((sum, tx) => sum + decimalToNumber(tx.amount), 0);
+    return { month: bucket.label, amount: roundCurrency(total) };
+  });
+
+  return res.json({ months });
+});
+
+router.get('/dashboard/:userId/loan-trend', authenticate, async (req: AuthRequest, res) => {
+  const { userId } = req.params;
+  if (req.user?.id !== userId) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+  const monthsParam = Array.isArray(req.query.months) ? req.query.months[0] : req.query.months;
+  const requestedMonths = monthsParam ? Number.parseInt(String(monthsParam), 10) : Number.NaN;
+  const buckets = createMonthBuckets(Number.isFinite(requestedMonths) ? requestedMonths : DEFAULT_MONTH_RANGE);
+  const rangeEnd = buckets[buckets.length - 1]?.end;
+  if (!rangeEnd) {
+    return res.json({ months: [] });
+  }
+
+  const loans = await prisma.loan.findMany({
+    where: {
+      applicantId: userId,
+      status: { not: LoanStatus.REJECTED },
+      applicationDate: { lte: rangeEnd }
+    },
+    select: { amount: true, applicationDate: true }
+  });
+
+  const repayments = await prisma.transaction.findMany({
+    where: {
+      userId,
+      type: TransactionType.LOAN_REPAYMENT,
+      date: { lte: rangeEnd }
+    },
+    select: { amount: true, date: true }
+  });
+
+  const months = buckets.map((bucket) => {
+    const principal = loans
+      .filter((loan) => loan.applicationDate <= bucket.end)
+      .reduce((sum, loan) => sum + decimalToNumber(loan.amount), 0);
+    const repaid = repayments
+      .filter((tx) => tx.date <= bucket.end)
+      .reduce((sum, tx) => sum + decimalToNumber(tx.amount), 0);
+    const outstanding = Math.max(principal - repaid, 0);
+    return { month: bucket.label, amount: roundCurrency(outstanding) };
+  });
+
+  return res.json({ months });
+});
+
+router.get('/dashboard/:userId/allocation-latest', authenticate, async (req: AuthRequest, res) => {
+  const { userId } = req.params;
+  if (req.user?.id !== userId) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+
+  const payment = await prisma.payment.findFirst({
+    where: { userId },
+    include: { allocations: true },
+    orderBy: { paymentDate: 'desc' }
+  });
+
+  if (!payment) {
+    return res.json({ payment: null, allocations: [] });
+  }
+
+  const allocations = payment.allocations.map((allocation) => ({
+    category: allocation.category,
+    label: paymentCategoryLabels[allocation.category] ?? allocation.category,
+    value: roundCurrency(decimalToNumber(allocation.amount))
+  }));
+
+  return res.json({
+    payment: {
+      id: payment.id,
+      date: payment.paymentDate,
+      totalAmount: roundCurrency(decimalToNumber(payment.totalAmount)),
+      status: payment.status
+    },
+    allocations
+  });
+});
+
+router.get('/dashboard/:userId/recent-transactions', authenticate, async (req: AuthRequest, res) => {
+  const { userId } = req.params;
+  if (req.user?.id !== userId) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+  const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+  const requestedLimit = limitParam ? Number.parseInt(String(limitParam), 10) : Number.NaN;
+  const limit = clampNumber(Number.isFinite(requestedLimit) ? requestedLimit : 10, 1, 50);
+
+  const transactions = await prisma.transaction.findMany({
+    where: { userId },
+    orderBy: { date: 'desc' },
+    take: limit,
+    select: {
+      id: true,
+      date: true,
+      type: true,
+      amount: true,
+      balanceAfter: true,
+      paymentId: true,
+      vehicle: { select: { id: true, plateNumber: true } },
+      account: { select: { vehicle: { select: { id: true, plateNumber: true } } } }
+    }
+  });
+
+  const formatted = transactions.map((tx) => {
+    const vehiclePlate = tx.vehicle?.plateNumber ?? tx.account?.vehicle?.plateNumber ?? null;
+    return {
+      id: tx.id,
+      date: tx.date.toISOString(),
+      type: tx.type,
+      label: transactionTypeLabels[tx.type] ?? tx.type,
+      amount: roundCurrency(decimalToNumber(tx.amount)),
+      balanceAfter: tx.balanceAfter ? roundCurrency(decimalToNumber(tx.balanceAfter)) : null,
+      vehiclePlate,
+      paymentId: tx.paymentId
+    };
+  });
+
+  return res.json({ transactions: formatted });
 });
 
 router.get('/paymentStatus/:checkoutRequestId', authenticate, async (req: AuthRequest, res) => {

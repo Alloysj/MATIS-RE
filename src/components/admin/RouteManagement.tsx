@@ -1,41 +1,23 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
-} from '../ui/table';
-import { 
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger
-} from '../ui/dialog';
-import { 
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '../ui/dropdown-menu';
-import { 
-  MapPin, 
-  Plus, 
-  Search, 
-  MoreVertical, 
-  Edit, 
-  Trash2,
-  Route,
-  Navigation,
-  Clock
-} from 'lucide-react';
+import { Badge } from '../ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
+import { MapPin, Plus, Search, MoreVertical, Edit, Trash2, Route as RouteIcon, Loader2 } from 'lucide-react';
+import {
+  AdminRoute,
+  fetchAdminRoutes,
+  createAdminRoute,
+  updateAdminRoute,
+  deleteAdminRoute
+} from '../../services/admin';
 
 interface RouteManagementProps {
   user: {
@@ -47,198 +29,202 @@ interface RouteManagementProps {
   onLogout: () => void;
 }
 
-// Mock data
-const routes = [
-  {
-    id: 'R001',
-    name: 'Nairobi - Kikuyu',
-    startPoint: 'Nairobi CBD',
-    endPoint: 'Kikuyu Market',
-    distance: '25 km',
-    estimatedTime: '45 minutes',
-    vehiclesAssigned: 5,
-    status: 'Active',
-    fare: 80,
-    dateCreated: '2023-12-15'
-  },
-  {
-    id: 'R002',
-    name: 'Nairobi - Thika',
-    startPoint: 'Nairobi CBD',
-    endPoint: 'Thika Town',
-    distance: '42 km',
-    estimatedTime: '1 hour 15 minutes',
-    vehiclesAssigned: 3,
-    status: 'Active',
-    fare: 120,
-    dateCreated: '2023-11-20'
-  },
-  {
-    id: 'R003',
-    name: 'Nairobi - Kisumu',
-    startPoint: 'Nairobi CBD',
-    endPoint: 'Kisumu Bus Park',
-    distance: '350 km',
-    estimatedTime: '6 hours',
-    vehiclesAssigned: 1,
-    status: 'Inactive',
-    fare: 800,
-    dateCreated: '2024-01-10'
+type RouteFormMode = 'create' | 'edit';
+
+interface RouteFormState {
+  name: string;
+  startPoint: string;
+  endPoint: string;
+  distanceKm: string;
+  fare: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
+
+const initialRouteForm = (): RouteFormState => ({
+  name: '',
+  startPoint: '',
+  endPoint: '',
+  distanceKm: '',
+  fare: '',
+  status: 'ACTIVE'
+});
+
+const formatMoney = (value: number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return '--';
   }
-];
+  return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(value);
+};
+
+const getErrorMessage = (error: unknown) => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return 'An unexpected error occurred';
+};
 
 export function RouteManagement({ user, onNavigate, onLogout }: RouteManagementProps) {
+  const [routes, setRoutes] = useState<AdminRoute[]>([]);
+  const [routesLoading, setRoutesLoading] = useState<boolean>(true);
+  const [routesError, setRoutesError] = useState<string | null>(null);
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [newRoute, setNewRoute] = useState({
-    name: '',
-    startPoint: '',
-    endPoint: '',
-    distance: '',
-    estimatedTime: '',
-    fare: ''
-  });
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<RouteFormMode>('create');
+  const [formValues, setFormValues] = useState<RouteFormState>(initialRouteForm());
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
+  const [formSubmitting, setFormSubmitting] = useState(false);
 
-  const handleDeleteRoute = (routeId: string) => {
-    console.log('Deleting route:', routeId);
-    // Add deletion logic here
-  };
+  const loadRoutes = useCallback(async () => {
+    setRoutesLoading(true);
+    setRoutesError(null);
+    try {
+      const list = await fetchAdminRoutes();
+      setRoutes(list);
+    } catch (error) {
+      setRoutesError(getErrorMessage(error));
+    } finally {
+      setRoutesLoading(false);
+    }
+  }, []);
 
-  const handleEditRoute = (routeId: string) => {
-    console.log('Editing route:', routeId);
-    // Add edit logic here
-  };
+  useEffect(() => {
+    loadRoutes();
+  }, [loadRoutes]);
 
-  const handleAddRoute = () => {
-    console.log('Adding new route:', newRoute);
-    // Add route creation logic here
-    setIsAddDialogOpen(false);
-    setNewRoute({
-      name: '',
-      startPoint: '',
-      endPoint: '',
-      distance: '',
-      estimatedTime: '',
-      fare: ''
+  const filteredRoutes = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) {
+      return routes;
+    }
+    return routes.filter(route => {
+      return (
+        route.name.toLowerCase().includes(term) ||
+        route.startPoint.toLowerCase().includes(term) ||
+        route.endPoint.toLowerCase().includes(term)
+      );
     });
+  }, [routes, searchTerm]);
+
+  const totalRoutes = routes.length;
+  const activeRoutes = routes.filter(route => route.status === 'ACTIVE').length;
+  const inactiveRoutes = routes.filter(route => route.status !== 'ACTIVE').length;
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setFormValues(initialRouteForm());
+    setEditingRouteId(null);
+    setFormMode('create');
+    setFormSubmitting(false);
   };
 
-  const filteredRoutes = routes.filter(route =>
-    route.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    route.startPoint.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    route.endPoint.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const openCreateForm = () => {
+    setFormMode('create');
+    setFormValues(initialRouteForm());
+    setEditingRouteId(null);
+    setFormOpen(true);
+  };
+
+  const openEditForm = (route: AdminRoute) => {
+    setFormMode('edit');
+    setEditingRouteId(route.id);
+    setFormValues({
+      name: route.name,
+      startPoint: route.startPoint,
+      endPoint: route.endPoint,
+      distanceKm: route.distanceKm !== null && route.distanceKm !== undefined ? String(route.distanceKm) : '',
+      fare: route.fare !== null && route.fare !== undefined ? String(route.fare) : '',
+      status: route.status
+    });
+    setFormOpen(true);
+  };
+
+  const handleRouteSubmit = async () => {
+    if (!formValues.name.trim() || !formValues.startPoint.trim() || !formValues.endPoint.trim()) {
+      toast.error('Route name, start point, and end point are required.');
+      return;
+    }
+
+    const payload = {
+      name: formValues.name.trim(),
+      startPoint: formValues.startPoint.trim(),
+      endPoint: formValues.endPoint.trim(),
+      distanceKm: formValues.distanceKm.trim() ? Number(formValues.distanceKm) : undefined,
+      fare: formValues.fare.trim() ? Number(formValues.fare) : undefined,
+      status: formValues.status
+    };
+
+    if ((payload.distanceKm !== undefined && !Number.isFinite(payload.distanceKm)) ||
+        (payload.fare !== undefined && !Number.isFinite(payload.fare))) {
+      toast.error('Distance and fare must be numeric values.');
+      return;
+    }
+
+    try {
+      setFormSubmitting(true);
+      if (formMode === 'create') {
+        const created = await createAdminRoute(payload);
+        toast.success('Route ' + created.name + ' created successfully');
+      } else if (editingRouteId) {
+        const updated = await updateAdminRoute(editingRouteId, payload);
+        toast.success('Route ' + updated.name + ' updated successfully');
+      }
+      closeForm();
+      await loadRoutes();
+    } catch (error) {
+      toast.error('Failed to save route: ' + getErrorMessage(error));
+      setFormSubmitting(false);
+    }
+  };
+
+  const handleDeleteRoute = async (route: AdminRoute) => {
+    const confirmed = window.confirm('Delete route ' + route.name + '? This cannot be undone.');
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await deleteAdminRoute(route.id);
+      toast.success('Route ' + route.name + ' deleted');
+      await loadRoutes();
+    } catch (error) {
+      toast.error('Failed to delete route: ' + getErrorMessage(error));
+    }
+  };
+
+  const filteredStats = useMemo(() => {
+    const total = filteredRoutes.length;
+    const active = filteredRoutes.filter(route => route.status === 'ACTIVE').length;
+    return { total, active };
+  }, [filteredRoutes]);
 
   return (
-    <AdminLayout 
-      user={user} 
-      currentPage="admin/fleet/routes" 
-      onNavigate={onNavigate} 
+    <AdminLayout
+      user={user}
+      currentPage="admin/fleet/routes"
+      onNavigate={onNavigate}
       onLogout={onLogout}
     >
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Route Management</h1>
-            <p className="text-gray-600 mt-1">Manage transport routes and assignments</p>
+            <p className="text-gray-600 mt-1">Create, update, and monitor fleet routes</p>
           </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] hover:opacity-90">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Route
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]">
-              <DialogHeader>
-                <DialogTitle>Add New Route</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="routeName">Route Name</Label>
-                    <Input
-                      id="routeName"
-                      placeholder="e.g., Nairobi - Nakuru"
-                      value={newRoute.name}
-                      onChange={(e) => setNewRoute({ ...newRoute, name: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="fare">Fare (KSh)</Label>
-                    <Input
-                      id="fare"
-                      type="number"
-                      placeholder="e.g., 100"
-                      value={newRoute.fare}
-                      onChange={(e) => setNewRoute({ ...newRoute, fare: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="startPoint">Start Point</Label>
-                    <Input
-                      id="startPoint"
-                      placeholder="e.g., Nairobi CBD"
-                      value={newRoute.startPoint}
-                      onChange={(e) => setNewRoute({ ...newRoute, startPoint: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="endPoint">End Point</Label>
-                    <Input
-                      id="endPoint"
-                      placeholder="e.g., Nakuru Town"
-                      value={newRoute.endPoint}
-                      onChange={(e) => setNewRoute({ ...newRoute, endPoint: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="distance">Distance</Label>
-                    <Input
-                      id="distance"
-                      placeholder="e.g., 160 km"
-                      value={newRoute.distance}
-                      onChange={(e) => setNewRoute({ ...newRoute, distance: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="estimatedTime">Estimated Time</Label>
-                    <Input
-                      id="estimatedTime"
-                      placeholder="e.g., 2 hours 30 minutes"
-                      value={newRoute.estimatedTime}
-                      onChange={(e) => setNewRoute({ ...newRoute, estimatedTime: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end space-x-3">
-                <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleAddRoute}>
-                  Add Route
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <Button onClick={openCreateForm}>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Route
+          </Button>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-gray-600">Total Routes</p>
-                  <p className="text-2xl font-bold text-gray-900">{routes.length}</p>
+                  <p className="text-2xl font-bold text-gray-900">{totalRoutes}</p>
                 </div>
-                <Route className="h-8 w-8 text-[var(--neon-turquoise)]" />
+                <RouteIcon className="h-8 w-8 text-[var(--neon-turquoise)]" />
               </div>
             </CardContent>
           </Card>
@@ -246,13 +232,11 @@ export function RouteManagement({ user, onNavigate, onLogout }: RouteManagementP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Active Routes</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    {routes.filter(r => r.status === 'Active').length}
-                  </p>
+                  <p className="text-sm font-medium text-gray-600">Active</p>
+                  <p className="text-2xl font-bold text-green-600">{activeRoutes}</p>
                 </div>
                 <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                  <div className="w-3 h-3 rounded-full bg-green-600"></div>
+                  <div className="w-3 h-3 rounded-full bg-green-600" />
                 </div>
               </div>
             </CardContent>
@@ -261,63 +245,62 @@ export function RouteManagement({ user, onNavigate, onLogout }: RouteManagementP
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">Vehicles Assigned</p>
-                  <p className="text-2xl font-bold text-blue-600">
-                    {routes.reduce((sum, route) => sum + route.vehiclesAssigned, 0)}
-                  </p>
+                  <p className="text-sm font-medium text-gray-600">Inactive</p>
+                  <p className="text-2xl font-bold text-yellow-600">{inactiveRoutes}</p>
                 </div>
-                <Navigation className="h-8 w-8 text-blue-600" />
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Avg. Distance</p>
-                  <p className="text-2xl font-bold text-purple-600">139 km</p>
+                <div className="w-8 h-8 rounded-full bg-yellow-100 flex items-center justify-center">
+                  <div className="w-3 h-3 rounded-full bg-yellow-600" />
                 </div>
-                <MapPin className="h-8 w-8 text-purple-600" />
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Search */}
-        <div className="relative w-80">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-          <Input
-            placeholder="Search routes..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="relative w-full md:w-80">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+            <Input
+              placeholder="Search routes..."
+              value={searchTerm}
+              onChange={event => setSearchTerm(event.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <div className="text-sm text-gray-500">
+            Showing {filteredStats.total} routes ({filteredStats.active} active)
+          </div>
         </div>
 
-        {/* Routes Table */}
+        {routesError && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {routesError}
+          </div>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
-              <Route className="h-5 w-5" />
-              <span>All Routes</span>
+              <MapPin className="h-5 w-5" />
+              <span>Routes</span>
+              {routesLoading && <Loader2 className="h-4 w-4 animate-spin text-gray-500 ml-2" />}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Route Info</TableHead>
-                  <TableHead>Start Point</TableHead>
-                  <TableHead>End Point</TableHead>
-                  <TableHead>Distance & Time</TableHead>
+                  <TableHead>Route</TableHead>
+                  <TableHead>Start</TableHead>
+                  <TableHead>End</TableHead>
+                  <TableHead>Distance (km)</TableHead>
                   <TableHead>Fare</TableHead>
-                  <TableHead>Vehicles</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRoutes.map((route) => (
+                {filteredRoutes.map(route => (
                   <TableRow key={route.id}>
                     <TableCell>
                       <div>
@@ -325,51 +308,14 @@ export function RouteManagement({ user, onNavigate, onLogout }: RouteManagementP
                         <p className="text-sm text-gray-500">{route.id}</p>
                       </div>
                     </TableCell>
+                    <TableCell>{route.startPoint}</TableCell>
+                    <TableCell>{route.endPoint}</TableCell>
+                    <TableCell>{route.distanceKm ?? '--'}</TableCell>
+                    <TableCell>{formatMoney(route.fare)}</TableCell>
                     <TableCell>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <MapPin className="h-3 w-3 mr-1 text-green-600" />
-                        {route.startPoint}
-                      </div>
+                      <Badge variant={route.status === 'ACTIVE' ? 'default' : 'outline'}>{route.status}</Badge>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <MapPin className="h-3 w-3 mr-1 text-red-600" />
-                        {route.endPoint}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium text-gray-900">{route.distance}</p>
-                        <div className="flex items-center text-xs text-gray-500">
-                          <Clock className="h-3 w-3 mr-1" />
-                          {route.estimatedTime}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="font-medium text-green-600">
-                        KSh {route.fare}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center">
-                        <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center mr-2">
-                          <span className="text-xs font-medium text-blue-600">
-                            {route.vehiclesAssigned}
-                          </span>
-                        </div>
-                        <span className="text-sm text-gray-600">assigned</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        route.status === 'Active' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {route.status}
-                      </span>
-                    </TableCell>
+                    <TableCell>{new Date(route.dateCreated).toLocaleDateString()}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -378,36 +324,115 @@ export function RouteManagement({ user, onNavigate, onLogout }: RouteManagementP
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleEditRoute(route.id)}>
+                          <DropdownMenuItem onClick={() => openEditForm(route)}>
                             <Edit className="h-4 w-4 mr-2" />
-                            Edit Route
+                            Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onNavigate('admin/fleet/assignments')}>
-                            <Navigation className="h-4 w-4 mr-2" />
-                            Assign Vehicles
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handleDeleteRoute(route.id)}
-                            className="text-red-600"
-                          >
+                          <DropdownMenuItem onClick={() => handleDeleteRoute(route)} className="text-red-600">
                             <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Route
+                            Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}
+                {filteredRoutes.length === 0 && !routesLoading && (
+                  <TableRow>
+                    <TableCell colSpan={8}>
+                      <div className="text-center py-10 text-gray-500">No routes match the current filters.</div>
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
-            {filteredRoutes.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                No routes found
-              </div>
+            {routesLoading && routes.length === 0 && (
+              <div className="text-center py-10 text-gray-500">Loading routes...</div>
             )}
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={formOpen} onOpenChange={open => (open ? setFormOpen(true) : closeForm())}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{formMode === 'create' ? 'Add Route' : 'Edit Route'}</DialogTitle>
+            <DialogDescription>
+              {formMode === 'create' ? 'Create a new transport route.' : 'Update the selected route.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="routeName">Route Name</Label>
+              <Input
+                id="routeName"
+                value={formValues.name}
+                onChange={event => setFormValues(prev => ({ ...prev, name: event.target.value }))}
+                placeholder="e.g. Nairobi - Thika"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="startPoint">Start Point</Label>
+              <Input
+                id="startPoint"
+                value={formValues.startPoint}
+                onChange={event => setFormValues(prev => ({ ...prev, startPoint: event.target.value }))}
+                placeholder="Origin"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="endPoint">End Point</Label>
+              <Input
+                id="endPoint"
+                value={formValues.endPoint}
+                onChange={event => setFormValues(prev => ({ ...prev, endPoint: event.target.value }))}
+                placeholder="Destination"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="distanceKm">Distance (km)</Label>
+              <Input
+                id="distanceKm"
+                value={formValues.distanceKm}
+                onChange={event => setFormValues(prev => ({ ...prev, distanceKm: event.target.value }))}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="fare">Default Fare (KES)</Label>
+              <Input
+                id="fare"
+                value={formValues.fare}
+                onChange={event => setFormValues(prev => ({ ...prev, fare: event.target.value }))}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="status">Status</Label>
+              <Select value={formValues.status} onValueChange={value => setFormValues(prev => ({ ...prev, status: value as 'ACTIVE' | 'INACTIVE' }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ACTIVE">Active</SelectItem>
+                  <SelectItem value="INACTIVE">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="space-x-2">
+            <Button variant="outline" onClick={closeForm}>
+              Cancel
+            </Button>
+            <Button onClick={handleRouteSubmit} disabled={formSubmitting}>
+              {formSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {formMode === 'create' ? 'Create Route' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }

@@ -10,6 +10,7 @@ import { ContactPage } from './components/ContactPage';
 import { LoginPage } from './components/LoginPage';
 import { RegisterPage } from './components/RegisterPage';
 import { ForgotPasswordPage } from './components/ForgotPasswordPage';
+import { VehicleOwnerDataProvider } from './context/VehicleOwnerDataContext';
 
 // Vehicle Owner Pages
 import { ShareholderCapitalPayment } from './components/vehicleowner/ShareholderCapitalPayment';
@@ -18,8 +19,7 @@ import { VehicleDashboard } from './components/vehicleowner/VehicleDashboard';
 import { LoanApplication } from './components/vehicleowner/LoanApplication';
 import { FinancialStatus } from './components/vehicleowner/FinancialStatus';
 import { VehicleRegistration } from './components/vehicleowner/VehicleRegistration';
-import { PaymentStatus } from './components/vehicleowner/PaymentStatus';
-import { PaymentReceipt } from './components/vehicleowner/PaymentReceipt';
+import { ProfilePage } from './components/vehicleowner/ProfilePage';
 import { ExitSacco } from './components/vehicleowner/ExitSacco';
 
 // Admin Pages
@@ -68,11 +68,11 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogin = (userData: { name: string; role: string; phone: string }) => {
+  const handleLogin = (userData: { id?: string; name: string; role: string; phone: string; hasCompletedCapitalPayment?: boolean }) => {
     const newUser: User = { 
       ...userData, 
       role: userData.role as User['role'],
-      hasCompletedCapitalPayment: false 
+      hasCompletedCapitalPayment: userData.hasCompletedCapitalPayment ?? false 
     };
     setUser(newUser);
     
@@ -195,10 +195,10 @@ export default function App() {
             <VehicleRegistration user={user} onNavigate={handleNavigate} onLogout={handleLogout} />
           </ProtectedRoute>
         );
-      case 'users/payments':
+      case 'users/profile':
         return (
-          <ProtectedRoute user={user} routePath="users/payments" onNavigate={handleNavigate}>
-            <PaymentStatus user={user} onNavigate={handleNavigate} onLogout={handleLogout} />
+          <ProtectedRoute user={user} routePath="users/profile" onNavigate={handleNavigate}>
+            <ProfilePage user={user} onNavigate={handleNavigate} onLogout={handleLogout} />
           </ProtectedRoute>
         );
       case 'users/exit':
@@ -320,21 +320,7 @@ export default function App() {
           </ProtectedRoute>
         );
       
-      // Payment receipt with dynamic ID
-      default:
-        if (currentPage.startsWith('users/payments/item/')) {
-          const paymentId = currentPage.split('/').pop();
-          return (
-            <ProtectedRoute user={user} routePath="users/payments" onNavigate={handleNavigate}>
-              <PaymentReceipt 
-                paymentId={paymentId || ''} 
-                user={user} 
-                onNavigate={handleNavigate} 
-                onLogout={handleLogout}
-              />
-            </ProtectedRoute>
-          );
-        }
+            default:
         return (
           <ProtectedRoute user={user} routePath="home" onNavigate={handleNavigate}>
             <LandingPage onNavigate={handleNavigate} />
@@ -349,13 +335,15 @@ export default function App() {
   ].includes(currentPage) || currentPage.startsWith('users/') || currentPage.startsWith('admin/') || currentPage.startsWith('staff/');
 
   return (
-    <div className="min-h-screen bg-background">
-      {!hideNavigation && (
-        <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
-      )}
-      <main>
-        {renderPage()}
-      </main>
-    </div>
+    <VehicleOwnerDataProvider userId={user?.id ?? null}>
+      <div className="min-h-screen bg-background">
+        {!hideNavigation && (
+          <Navigation currentPage={currentPage} onNavigate={handleNavigate} />
+        )}
+        <main>
+          {renderPage()}
+        </main>
+      </div>
+    </VehicleOwnerDataProvider>
   );
 }
