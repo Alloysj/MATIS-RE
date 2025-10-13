@@ -39,7 +39,9 @@ import {
   AdminVehicleUpdatePayload,
   AdminInsurancePaymentRequest,
   fetchAdminRoutes,
-  AdminRoute
+  AdminRoute,
+  getCachedAdminFleetVehicles,
+  getCachedAdminRoutes
 } from '../../services/admin';
 import { AvailableDriver, getAvailableDrivers } from '../../services/matatus';
 

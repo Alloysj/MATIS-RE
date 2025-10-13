@@ -6,6 +6,12 @@ const ADMIN_BASE = '/api/admin';
 const ADMIN_FLEET_BASE = `${ADMIN_BASE}/fleet`;
 const ROUTES_BASE = '/api/routes';
 
+const DASHBOARD_USERS_CACHE_KEY = `${ADMIN_BASE}/dashboard/users`;
+const DASHBOARD_VEHICLES_CACHE_KEY = `${ADMIN_BASE}/dashboard/vehicles`;
+const DASHBOARD_LOANS_CACHE_KEY = `${ADMIN_BASE}/dashboard/loans`;
+const DASHBOARD_INSURANCE_CACHE_KEY = `${ADMIN_BASE}/dashboard/insurance`;
+const DASHBOARD_SAVINGS_CACHE_KEY = `${ADMIN_BASE}/dashboard/savings`;
+const ADMIN_LOANS_CACHE_KEY = `${ADMIN_BASE}/loans`;
 function mergeHeaders(method: FetchMethod, initHeaders?: HeadersInit) {
   const headers: Record<string, string> = { ...authHeaders() };
   const input = initHeaders ? new Headers(initHeaders) : undefined;
@@ -50,6 +56,83 @@ const toNumberOrNull = (value: unknown): number | null => {
   const parsed = Number(value);
   return Number.isNaN(parsed) ? null : parsed;
 };
+
+type CacheEntry<T> = {
+  promise: Promise<T>;
+  expiry: number | null;
+  value?: T;
+};
+
+const ADMIN_DEFAULT_CACHE_TTL = 0; // cache until invalidated
+const adminCache = new Map<string, CacheEntry<unknown>>();
+
+const isEntryValid = (entry: CacheEntry<unknown> | undefined, now: number) => {
+  if (!entry) {
+    return false;
+  }
+  return entry.expiry === null || entry.expiry > now;
+};
+
+function cachedRequest<T>(key: string, fetcher: () => Promise<T>, ttl = ADMIN_DEFAULT_CACHE_TTL): Promise<T> {
+  const existing = adminCache.get(key) as CacheEntry<T> | undefined;
+  const now = Date.now();
+  if (existing && isEntryValid(existing, now)) {
+    return existing.promise;
+  }
+
+  const promise = fetcher()
+    .then(data => {
+      const resolvedEntry: CacheEntry<T> = {
+        promise: Promise.resolve(data),
+        expiry: ttl > 0 ? now + ttl : null,
+        value: data
+      };
+      adminCache.set(key, resolvedEntry);
+      return data;
+    })
+    .catch(error => {
+      adminCache.delete(key);
+      throw error;
+    });
+
+  const pendingEntry: CacheEntry<T> = {
+    promise,
+    expiry: ttl > 0 ? now + ttl : null,
+    value: existing?.value
+  };
+  adminCache.set(key, pendingEntry);
+
+  return promise;
+}
+
+function getCachedData<T>(key: string): T | undefined {
+  const entry = adminCache.get(key) as CacheEntry<T> | undefined;
+  if (!entry) {
+    return undefined;
+  }
+  const now = Date.now();
+  if (entry.expiry !== null && entry.expiry <= now) {
+    adminCache.delete(key);
+    return undefined;
+  }
+  return entry.value;
+}
+
+export function invalidateAdminCache(prefix: string) {
+  for (const key of Array.from(adminCache.keys())) {
+    if (key.startsWith(prefix)) {
+      adminCache.delete(key);
+    }
+  }
+}
+
+const invalidateAdminCaches = (prefixes: string[]) => {
+  prefixes.forEach(prefix => invalidateAdminCache(prefix));
+};
+
+export function getCachedAdminData<T>(key: string): T | undefined {
+  return getCachedData<T>(key);
+}
 
 export type AdminUserStatusCode = 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'INACTIVE';
 
@@ -188,6 +271,20 @@ export interface AdminVehicleListResponse {
     search: string | null;
   };
 }
+
+const buildFleetVehiclesCacheKey = (filters: AdminVehicleFilters = {}): string => {
+  const params = new URLSearchParams();
+  if (filters.status) params.append('status', filters.status);
+  if (filters.registrationStatus) params.append('registrationStatus', filters.registrationStatus);
+  if (filters.insuranceStatus) params.append('insuranceStatus', filters.insuranceStatus);
+  if (filters.ownerId) params.append('ownerId', filters.ownerId);
+  if (filters.driverId) params.append('driverId', filters.driverId);
+  if (filters.routeId) params.append('routeId', filters.routeId);
+  if (filters.search) params.append('search', filters.search);
+
+  const query = params.toString();
+  return `${ADMIN_FLEET_BASE}/vehicles${query ? `?${query}` : ''}`;
+};
 
 export interface AdminVehicleCreatePayload {
   ownerId: string;
@@ -452,108 +549,163 @@ export interface AdminUserListParams {
 }
 
 export async function fetchDashboardUsers(): Promise<DashboardUsersResponse> {
-  return request(`${ADMIN_BASE}/dashboard/users`);
+  return cachedRequest(DASHBOARD_USERS_CACHE_KEY, () => request(DASHBOARD_USERS_CACHE_KEY));
 }
 
 export async function fetchDashboardVehicles(): Promise<DashboardVehiclesResponse> {
-  return request(`${ADMIN_BASE}/dashboard/vehicles`);
+  return cachedRequest(DASHBOARD_VEHICLES_CACHE_KEY, () => request(DASHBOARD_VEHICLES_CACHE_KEY));
 }
 
 export async function fetchDashboardLoans(): Promise<DashboardLoansResponse> {
-  return request(`${ADMIN_BASE}/dashboard/loans`);
+  return cachedRequest(DASHBOARD_LOANS_CACHE_KEY, () => request(DASHBOARD_LOANS_CACHE_KEY));
 }
 
 export async function fetchDashboardInsurance(): Promise<DashboardInsuranceResponse> {
-  return request(`${ADMIN_BASE}/dashboard/insurance`);
+  return cachedRequest(DASHBOARD_INSURANCE_CACHE_KEY, () => request(DASHBOARD_INSURANCE_CACHE_KEY));
 }
 
 export async function fetchDashboardSavings(): Promise<DashboardSavingsResponse> {
-  return request(`${ADMIN_BASE}/dashboard/savings`);
+  return cachedRequest(DASHBOARD_SAVINGS_CACHE_KEY, () => request(DASHBOARD_SAVINGS_CACHE_KEY));
 }
 
-export async function fetchAdminLoans(filters: AdminLoanFilters = {}): Promise<AdminLoanListResponse> {
+const buildAdminLoansCacheKey = (filters: AdminLoanFilters = {}): string => {
   const params = new URLSearchParams();
   if (filters.status) params.append('status', filters.status);
   if (filters.type) params.append('type', filters.type);
   if (filters.search) params.append('search', filters.search);
   const query = params.toString();
-  return request(`${ADMIN_BASE}/loans${query ? `?${query}` : ''}`);
+  return `${ADMIN_LOANS_CACHE_KEY}${query ? `?${query}` : ''}`;
+};
+
+export async function fetchAdminLoans(
+  filters: AdminLoanFilters = {}
+): Promise<AdminLoanListResponse> {
+  const path = buildAdminLoansCacheKey(filters);
+  return cachedRequest(path, () => request(path));
 }
 
 export async function fetchAdminLoan(loanId: string): Promise<AdminLoanSummary> {
-  return request(`${ADMIN_BASE}/loans/${loanId}`);
+  const path = `${ADMIN_LOANS_CACHE_KEY}/${loanId}`;
+  return cachedRequest(path, () => request(path));
 }
 
 export async function updateAdminLoan(
   loanId: string,
   payload: AdminLoanUpdatePayload
 ): Promise<AdminLoanSummary> {
-  return request(`${ADMIN_BASE}/loans/${loanId}`, {
+  const path = `${ADMIN_LOANS_CACHE_KEY}/${loanId}`;
+  const response = await request<AdminLoanSummary>(path, {
     method: 'PATCH',
     body: JSON.stringify(payload)
   });
+  invalidateAdminCaches([ADMIN_LOANS_CACHE_KEY, DASHBOARD_LOANS_CACHE_KEY]);
+  invalidateAdminCache(path);
+  return response;
 }
+export const getCachedDashboardUsers = () =>
+  getCachedAdminData<DashboardUsersResponse>(DASHBOARD_USERS_CACHE_KEY);
 
-export async function fetchAdminFleetVehicles(filters: AdminVehicleFilters = {}): Promise<AdminVehicleListResponse> {
-  const params = new URLSearchParams();
-  if (filters.status) params.append('status', filters.status);
-  if (filters.registrationStatus) params.append('registrationStatus', filters.registrationStatus);
-  if (filters.insuranceStatus) params.append('insuranceStatus', filters.insuranceStatus);
-  if (filters.ownerId) params.append('ownerId', filters.ownerId);
-  if (filters.driverId) params.append('driverId', filters.driverId);
-  if (filters.routeId) params.append('routeId', filters.routeId);
-  if (filters.search) params.append('search', filters.search);
+export const getCachedDashboardVehicles = () =>
+  getCachedAdminData<DashboardVehiclesResponse>(DASHBOARD_VEHICLES_CACHE_KEY);
 
-  const query = params.toString();
-  const suffix = query ? `?${query}` : '';
-  return request(`${ADMIN_FLEET_BASE}/vehicles${suffix}`);
+export const getCachedDashboardLoans = () =>
+  getCachedAdminData<DashboardLoansResponse>(DASHBOARD_LOANS_CACHE_KEY);
+
+export const getCachedDashboardInsurance = () =>
+  getCachedAdminData<DashboardInsuranceResponse>(DASHBOARD_INSURANCE_CACHE_KEY);
+
+export const getCachedDashboardSavings = () =>
+  getCachedAdminData<DashboardSavingsResponse>(DASHBOARD_SAVINGS_CACHE_KEY);
+
+export const getCachedAdminLoans = (filters: AdminLoanFilters = {}) =>
+  getCachedAdminData<AdminLoanListResponse>(buildAdminLoansCacheKey(filters));
+
+export const getCachedAdminLoan = (loanId: string) =>
+  getCachedAdminData<AdminLoanSummary>(`${ADMIN_LOANS_CACHE_KEY}/${loanId}`);
+
+export const getCachedAdminFleetVehicles = (filters: AdminVehicleFilters = {}) =>
+  getCachedAdminData<AdminVehicleListResponse>(buildFleetVehiclesCacheKey(filters));
+
+export const getCachedAdminFleetVehicle = (vehicleId: string) =>
+  getCachedAdminData<AdminVehicleSummary>(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`);
+
+export const getCachedAdminRoutes = () => getCachedAdminData<AdminRoute[]>(ROUTES_BASE);
+
+export const getCachedAdminRoute = (routeId: string) =>
+  getCachedAdminData<AdminRoute>(`${ROUTES_BASE}/${routeId}`);
+export async function fetchAdminFleetVehicles(
+  filters: AdminVehicleFilters = {}
+): Promise<AdminVehicleListResponse> {
+  const path = buildFleetVehiclesCacheKey(filters);
+  return cachedRequest(path, () => request(path));
 }
 
 export async function fetchAdminFleetVehicle(vehicleId: string): Promise<AdminVehicleSummary> {
-  return request(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`);
+  const path = `${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`;
+  return cachedRequest(path, () => request(path));
 }
 
 export async function createAdminFleetVehicle(payload: AdminVehicleCreatePayload): Promise<AdminVehicleSummary> {
-  return request(`${ADMIN_FLEET_BASE}/vehicles`, {
+  const vehicle = await request<AdminVehicleSummary>(`${ADMIN_FLEET_BASE}/vehicles`, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
+  invalidateAdminCaches([`${ADMIN_FLEET_BASE}/vehicles`, DASHBOARD_VEHICLES_CACHE_KEY]);
+  if (vehicle?.id) {
+    invalidateAdminCache(`${ADMIN_FLEET_BASE}/vehicles/${vehicle.id}`);
+  }
+  return vehicle;
 }
 
 export async function updateAdminFleetVehicle(
   vehicleId: string,
-  payload: AdminVehicleUpdatePayload,
+  payload: AdminVehicleUpdatePayload
 ): Promise<AdminVehicleSummary> {
-  return request(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`, {
+  const vehicle = await request<AdminVehicleSummary>(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`, {
     method: 'PATCH',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
+  invalidateAdminCaches([`${ADMIN_FLEET_BASE}/vehicles`, DASHBOARD_VEHICLES_CACHE_KEY]);
+  invalidateAdminCache(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`);
+  return vehicle;
 }
 
 export async function deleteAdminFleetVehicle(vehicleId: string): Promise<void> {
   await request(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`, { method: 'DELETE' });
+  invalidateAdminCaches([`${ADMIN_FLEET_BASE}/vehicles`, DASHBOARD_VEHICLES_CACHE_KEY]);
+  invalidateAdminCache(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`);
 }
 
 export async function assignDriverToVehicle(
   vehicleId: string,
   payload: AdminAssignDriverPayload,
 ): Promise<AdminDriverAssignmentResponse> {
-  return request(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}/assign-driver`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  const response = await request<AdminDriverAssignmentResponse>(
+    `${ADMIN_FLEET_BASE}/vehicles/${vehicleId}/assign-driver`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }
+  );
+  invalidateAdminCaches([`${ADMIN_FLEET_BASE}/vehicles`, DASHBOARD_VEHICLES_CACHE_KEY]);
+  invalidateAdminCache(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`);
+  return response;
 }
-
 export async function recordVehicleInsurancePayment(
   vehicleId: string,
   payload: AdminInsurancePaymentRequest,
 ): Promise<AdminInsurancePaymentResponse> {
-  return request(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}/insurance/pay`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  const response = await request<AdminInsurancePaymentResponse>(
+    `${ADMIN_FLEET_BASE}/vehicles/${vehicleId}/insurance/pay`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }
+  );
+  invalidateAdminCaches([`${ADMIN_FLEET_BASE}/vehicles`, DASHBOARD_VEHICLES_CACHE_KEY, DASHBOARD_INSURANCE_CACHE_KEY]);
+  invalidateAdminCache(`${ADMIN_FLEET_BASE}/vehicles/${vehicleId}`);
+  return response;
 }
-
 const mapRouteRecord = (route: any): AdminRoute => {
   const normalizeDate = (value: any): string => {
     if (!value) return new Date().toISOString();
@@ -593,38 +745,52 @@ const mapRouteRecord = (route: any): AdminRoute => {
 };
 
 export async function fetchAdminRoutes(): Promise<AdminRoute[]> {
-  const routes = await request<any[]>(ROUTES_BASE);
-  return routes.map(mapRouteRecord);
+  return cachedRequest(ROUTES_BASE, async () => {
+    const routes = await request<any[]>(ROUTES_BASE);
+    return routes.map(mapRouteRecord);
+  });
 }
 
 export async function fetchAdminRoute(routeId: string): Promise<AdminRoute> {
-  const route = await request<any>(`${ROUTES_BASE}/${routeId}`);
-  return mapRouteRecord(route);
+  const path = `${ROUTES_BASE}/${routeId}`;
+  return cachedRequest(path, async () => {
+    const route = await request<any>(path);
+    return mapRouteRecord(route);
+  });
 }
 
 export async function createAdminRoute(payload: AdminRoutePayload): Promise<AdminRoute> {
   const route = await request<any>(ROUTES_BASE, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload)
   });
+  invalidateAdminCaches([ROUTES_BASE]);
+  if (route?.id) {
+    invalidateAdminCache(`${ROUTES_BASE}/${route.id}`);
+  }
   return mapRouteRecord(route);
 }
 
 export async function updateAdminRoute(
   routeId: string,
-  payload: Partial<AdminRoutePayload>,
+  payload: Partial<AdminRoutePayload>
 ): Promise<AdminRoute> {
-  const route = await request<any>(`${ROUTES_BASE}/${routeId}`, {
-    method: 'PUT',
-    body: JSON.stringify(payload),
+  const path = `${ROUTES_BASE}/${routeId}`;
+  const route = await request<any>(path, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
   });
+  invalidateAdminCaches([ROUTES_BASE]);
+  invalidateAdminCache(path);
   return mapRouteRecord(route);
 }
 
 export async function deleteAdminRoute(routeId: string): Promise<void> {
-  await request(`${ROUTES_BASE}/${routeId}`, { method: 'DELETE' });
+  const path = `${ROUTES_BASE}/${routeId}`;
+  await request(path, { method: 'DELETE' });
+  invalidateAdminCaches([ROUTES_BASE]);
+  invalidateAdminCache(path);
 }
-
 export async function fetchAdminUsers(params: AdminUserListParams = {}): Promise<{
   items: AdminUserSummary[];
   total: number;
@@ -771,3 +937,10 @@ export async function addRolePermission(
 export async function removeRolePermission(rolePermissionId: string): Promise<void> {
   await request(`/api/rolePermissions/${rolePermissionId}`, { method: 'DELETE' });
 }
+
+
+
+
+
+
+
