@@ -1,8 +1,6 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
-
-const prisma = new PrismaClient();
+import prisma from '../prismaClient';
 const router = Router();
 
 router.get('/matatuDetails', authenticate, async (req: AuthRequest, res) => {

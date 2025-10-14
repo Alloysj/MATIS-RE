@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import axios from 'axios';
-import { PrismaClient, Prisma, PaymentStatus, PaymentCategory, TransactionType, LoanStatus } from '@prisma/client';
+import { Prisma, PaymentStatus, PaymentCategory, TransactionType, LoanStatus } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import prisma from '../prismaClient';
 
-const prisma = new PrismaClient();
 const router = Router();
 
 const MPESA_BASE_URL = process.env.MPESA_BASE_URL ?? 'https://sandbox.safaricom.co.ke';

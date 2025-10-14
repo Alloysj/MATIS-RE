@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import { createCrudRouter } from './crudRouter';
 import supabase from './supabaseClient';
 import usersRouter from './routes/users';
@@ -12,8 +11,8 @@ import rolesRouter from './routes/roles';
 import staffRouter from './routes/staff';
 import swaggerUi from 'swagger-ui-express';
 import swaggerDocument from './swagger';
+import prisma from './prismaClient';
 
-const prisma = new PrismaClient();
 const app = express();
 // Basic CORS handling (no extra deps needed)
 const defaultOrigins = ['http://localhost:3000', 'http://localhost:5173'];

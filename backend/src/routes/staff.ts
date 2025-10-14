@@ -1,8 +1,7 @@
 import { Router } from 'express';
-import { PrismaClient, SalaryStatus, SalaryAdvanceStatus, ExpenseStatus } from '@prisma/client';
+import { SalaryStatus, SalaryAdvanceStatus, ExpenseStatus } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
-
-const prisma = new PrismaClient();
+import prisma from '../prismaClient';
 const router = Router();
 
 // Return authenticated staff member's name and position

@@ -1,6 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
 import {
-  PrismaClient,
   Prisma,
   UserStatus,
   VehicleStatus,
@@ -13,8 +12,7 @@ import {
 } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { authenticate, AuthRequest } from '../middleware/auth';
-
-const prisma = new PrismaClient();
+import prisma from '../prismaClient';
 const router = Router();
 
 const ADMIN_ROLE_NAMES = new Set(['ADMIN', 'SUPERADMIN', 'SUPER ADMIN']);
