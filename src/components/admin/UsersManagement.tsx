@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -30,6 +30,7 @@ import {
   Mail,
   Calendar
 } from 'lucide-react';
+import { fetchAdminUsers, type AdminUserSummary } from '../../services/admin';
 
 interface UsersManagementProps {
   user: {
@@ -41,83 +42,117 @@ interface UsersManagementProps {
   onLogout: () => void;
 }
 
-// Mock data
-const pendingUsers = [
-  {
-    id: 'PU001',
-    name: 'John Kamau',
-    email: 'john.kamau@gmail.com',
-    phone: '+254 712 345 678',
-    role: 'Vehicle Owner',
-    dateSubmitted: '2024-01-15',
-    idDocument: 'valid'
-  },
-  {
-    id: 'PU002',
-    name: 'Mary Wanjiku',
-    email: 'mary.w@yahoo.com',
-    phone: '+254 723 456 789',
-    role: 'Driver',
-    dateSubmitted: '2024-01-14',
-    idDocument: 'valid'
-  },
-  {
-    id: 'PU003',
-    name: 'Peter Ochieng',
-    email: 'p.ochieng@gmail.com',
-    phone: '+254 734 567 890',
-    role: 'Vehicle Owner',
-    dateSubmitted: '2024-01-13',
-    idDocument: 'pending'
-  }
-];
-
-const approvedUsers = [
-  {
-    id: 'AU001',
-    name: 'James Mutua',
-    email: 'james.mutua@gmail.com',
-    phone: '+254 701 234 567',
-    role: 'Vehicle Owner',
-    dateJoined: '2023-12-20',
-    status: 'Active',
-    vehicles: 2
-  },
-  {
-    id: 'AU002',
-    name: 'Grace Akinyi',
-    email: 'grace.akinyi@gmail.com',
-    phone: '+254 712 345 678',
-    role: 'Staff',
-    dateJoined: '2023-11-15',
-    status: 'Active',
-    position: 'Secretary'
-  },
-  {
-    id: 'AU003',
-    name: 'Samuel Kiprop',
-    email: 'sam.kiprop@gmail.com',
-    phone: '+254 723 456 789',
-    role: 'Driver',
-    dateJoined: '2023-10-10',
-    status: 'Active',
-    assignedVehicle: 'KCA 123X'
-  },
-  {
-    id: 'AU004',
-    name: 'Catherine Muthoni',
-    email: 'cate.muthoni@gmail.com',
-    phone: '+254 734 567 890',
-    role: 'Vehicle Owner',
-    dateJoined: '2023-09-05',
-    status: 'Inactive',
-    vehicles: 1
-  }
-];
-
 export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'pending' | 'approved'>('pending');
+  const [users, setUsers] = useState<AdminUserSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadUsers = async () => {
+      setLoading(true);
+      try {
+        const response = await fetchAdminUsers();
+        if (!isMounted) return;
+        setUsers(response.items ?? []);
+        setError(null);
+      } catch (err) {
+        if (!isMounted) return;
+        console.error('Failed to load users', err);
+        setError(err instanceof Error ? err.message : 'Failed to load users');
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadUsers();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const matchesSearch = (candidate: AdminUserSummary, term: string) => {
+    const query = term.trim().toLowerCase();
+    if (!query) return true;
+
+    const fields = [
+      candidate.name,
+      candidate.email,
+      candidate.phone ?? '',
+      candidate.memberNumber ?? '',
+      candidate.idNumber ?? '',
+      candidate.role?.name ?? '',
+      candidate.status ?? ''
+    ];
+
+    return fields.some(field => field.toLowerCase().includes(query));
+  };
+
+  const pendingUsers = useMemo(
+    () => users.filter((item) => item.statusCode === 'PENDING'),
+    [users]
+  );
+
+  const approvedUsers = useMemo(
+    () => users.filter((item) => item.statusCode !== 'PENDING'),
+    [users]
+  );
+
+  const filteredPendingUsers = useMemo(
+    () => pendingUsers.filter((item) => matchesSearch(item, searchTerm)),
+    [pendingUsers, searchTerm]
+  );
+
+  const filteredApprovedUsers = useMemo(
+    () => approvedUsers.filter((item) => matchesSearch(item, searchTerm)),
+    [approvedUsers, searchTerm]
+  );
+
+  const formatDisplayDate = (value?: string | null) => {
+    if (!value) return 'N/A';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      const [datePart] = value.split('T');
+      return datePart || value;
+    }
+    return parsed.toLocaleDateString();
+  };
+
+  const getRoleName = (candidate: AdminUserSummary) => candidate.role?.name ?? 'Unassigned';
+
+  const getStatusVariant = (statusCode: string) => {
+    switch (statusCode) {
+      case 'ACTIVE':
+        return 'default' as const;
+      case 'PENDING':
+        return 'secondary' as const;
+      case 'SUSPENDED':
+        return 'destructive' as const;
+      default:
+        return 'outline' as const;
+    }
+  };
+
+  const getAdditionalInfo = (candidate: AdminUserSummary) => {
+    const details: string[] = [];
+    const vehicleCount = candidate.vehiclesOwned?.count ?? candidate.vehicles.length;
+    if (vehicleCount) {
+      details.push(`${vehicleCount} vehicle${vehicleCount === 1 ? '' : 's'}`);
+    }
+    if (candidate.membershipTypeLabel) {
+      details.push(candidate.membershipTypeLabel);
+    }
+    if (candidate.profileCategoryLabel) {
+      details.push(candidate.profileCategoryLabel);
+    }
+    return details.length > 0 ? details.join(' | ') : 'N/A';
+  };
 
   const handleApproveUser = (userId: string) => {
     console.log('Approving user:', userId);
@@ -138,15 +173,15 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
     // Add deletion logic here
   };
 
-  const filteredPendingUsers = pendingUsers.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // const filteredPendingUsers = pendingUsers.filter(user =>
+  //   user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  //   user.email.toLowerCase().includes(searchTerm.toLowerCase())
+  // );
 
-  const filteredApprovedUsers = approvedUsers.filter(user =>
-    user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // const filteredApprovedUsers = approvedUsers.filter(user =>
+  //   user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+  //   user.email.toLowerCase().includes(searchTerm.toLowerCase())
+  // );
 
   return (
     <AdminLayout 
@@ -269,83 +304,94 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User Info</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Date Submitted</TableHead>
-                    <TableHead>ID Document</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredPendingUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium text-gray-900">{user.name}</p>
-                          <p className="text-sm text-gray-500">{user.id}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Mail className="h-3 w-3 mr-1" />
-                            {user.email}
-                          </div>
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Phone className="h-3 w-3 mr-1" />
-                            {user.phone}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{user.role}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center text-sm text-gray-600">
-                          <Calendar className="h-3 w-3 mr-1" />
-                          {user.dateSubmitted}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={user.idDocument === 'valid' ? 'default' : 'secondary'}>
-                          {user.idDocument}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleApproveUser(user.id)}>
-                              <UserCheck className="h-4 w-4 mr-2 text-green-600" />
-                              Approve
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleRejectUser(user.id)}>
-                              <UserX className="h-4 w-4 mr-2 text-red-600" />
-                              Reject
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onNavigate('admin/users/approve')}>
-                              <Edit className="h-4 w-4 mr-2" />
-                              View Details
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {filteredPendingUsers.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  No pending users found
-                </div>
+              {loading ? (
+                <div className="py-8 text-center text-gray-500">Loading users...</div>
+              ) : error ? (
+                <div className="py-8 text-center text-red-600">{error}</div>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>User Info</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Date Submitted</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredPendingUsers.map((pendingUser) => (
+                        <TableRow key={pendingUser.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium text-gray-900">{pendingUser.name}</p>
+                              <p className="text-sm text-gray-500">
+                                {pendingUser.memberNumber || pendingUser.id}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="flex items-center text-sm text-gray-600">
+                                <Mail className="h-3 w-3 mr-1" />
+                                {pendingUser.email || 'N/A'}
+                              </div>
+                              <div className="flex items-center text-sm text-gray-600">
+                                <Phone className="h-3 w-3 mr-1" />
+                                {pendingUser.phone || 'N/A'}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{getRoleName(pendingUser)}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center text-sm text-gray-600">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              {formatDisplayDate(pendingUser.registrationDate ?? pendingUser.createdAt)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={getStatusVariant(pendingUser.statusCode)}>
+                              {pendingUser.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleApproveUser(pendingUser.id)}>
+                                  <UserCheck className="h-4 w-4 mr-2" />
+                                  Approve
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleRejectUser(pendingUser.id)}
+                                  className="text-red-600"
+                                >
+                                  <UserX className="h-4 w-4 mr-2" />
+                                  Reject
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onNavigate('admin/users/approve')}>
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  View Details
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {filteredPendingUsers.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No pending users found</div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -361,94 +407,98 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User Info</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Date Joined</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Additional Info</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredApprovedUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium text-gray-900">{user.name}</p>
-                          <p className="text-sm text-gray-500">{user.id}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Mail className="h-3 w-3 mr-1" />
-                            {user.email}
-                          </div>
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Phone className="h-3 w-3 mr-1" />
-                            {user.phone}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{user.role}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center text-sm text-gray-600">
-                          <Calendar className="h-3 w-3 mr-1" />
-                          {user.dateJoined}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={user.status === 'Active' ? 'default' : 'secondary'}>
-                          {user.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm text-gray-600">
-                          {user.vehicles && `${user.vehicles} vehicles`}
-                          {user.position && user.position}
-                          {user.assignedVehicle && `Assigned: ${user.assignedVehicle}`}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditUser(user.id)}>
-                              <Edit className="h-4 w-4 mr-2" />
-                              Edit Profile
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onNavigate('admin/users/roles')}>
-                              <UserCheck className="h-4 w-4 mr-2" />
-                              Manage Roles
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              onClick={() => handleDeleteUser(user.id)}
-                              className="text-red-600"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete User
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              {filteredApprovedUsers.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  No approved users found
-                </div>
+              {loading ? (
+                <div className="py-8 text-center text-gray-500">Loading users...</div>
+              ) : error ? (
+                <div className="py-8 text-center text-red-600">{error}</div>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>User Info</TableHead>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Date Joined</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Additional Info</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredApprovedUsers.map((approvedUser) => (
+                        <TableRow key={approvedUser.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium text-gray-900">{approvedUser.name}</p>
+                              <p className="text-sm text-gray-500">
+                                {approvedUser.memberNumber || approvedUser.id}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <div className="flex items-center text-sm text-gray-600">
+                                <Mail className="h-3 w-3 mr-1" />
+                                {approvedUser.email || 'N/A'}
+                              </div>
+                              <div className="flex items-center text-sm text-gray-600">
+                                <Phone className="h-3 w-3 mr-1" />
+                                {approvedUser.phone || 'N/A'}
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{getRoleName(approvedUser)}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center text-sm text-gray-600">
+                              <Calendar className="h-3 w-3 mr-1" />
+                              {formatDisplayDate(approvedUser.registrationDate ?? approvedUser.createdAt)}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={getStatusVariant(approvedUser.statusCode)}>
+                              {approvedUser.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm text-gray-600">{getAdditionalInfo(approvedUser)}</div>
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleEditUser(approvedUser.id)}>
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit Profile
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onNavigate('admin/users/roles')}>
+                                  <UserCheck className="h-4 w-4 mr-2" />
+                                  Manage Roles
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteUser(approvedUser.id)}
+                                  className="text-red-600"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete User
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {filteredApprovedUsers.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">No approved users found</div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

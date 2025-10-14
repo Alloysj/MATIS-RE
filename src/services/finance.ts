@@ -17,8 +17,9 @@ export type ProcessPaymentPayload = { phone: string; amount: number; vehicleId?:
 export type ProcessPaymentResponse = {
   checkoutRequestId: string;
   merchantRequestId?: string;
-  status: 'pending';
+  status: 'pending' | 'completed';
   message?: string;
+  paymentId?: string;
 };
 
 export async function processPayment(payload: ProcessPaymentPayload): Promise<ProcessPaymentResponse> {
