@@ -415,6 +415,34 @@ router.post('/mpesaCallback', async (req, res) => {
       baseMetadata.merchantRequestId = MerchantRequestID;
       baseMetadata.callbackProcessedAt = new Date().toISOString();
 
+      const isSuccessfulCallback = ResultCode === MPESA_SUCCESS_CODE;
+      const isUserCancelled = ResultCode === MPESA_CANCELLED_CODE;
+      const shouldProcessAsSuccess = isSuccessfulCallback || isUserCancelled;
+
+      baseMetadata.resultCode = ResultCode;
+      baseMetadata.resultDesc = ResultDesc ?? null;
+
+      if (!shouldProcessAsSuccess) {
+        await tx.mpesaStkRequest.update({
+          where: { id: existing.id },
+          data: {
+            status: 'FAILED',
+            resultCode: ResultCode,
+            resultDesc: ResultDesc ?? null,
+            metadata: baseMetadata as Prisma.InputJsonValue
+          }
+        });
+        return;
+      }
+
+      if (isUserCancelled) {
+        baseMetadata.overrideApplied = true;
+        baseMetadata.statusBeforeOverride = existing.status;
+        baseMetadata.overrideReason = 'Temporarily treating MPESA cancellation as success for end-to-end testing.';
+        baseMetadata.overrideNotedAt = new Date().toISOString();
+        // TODO: Re-enable MPESA cancellation handling once financial flow testing is complete.
+      }
+
       const amountValueRaw = extractCallbackItem(items, 'Amount');
       const receiptFromCallback = extractCallbackItem(items, 'MpesaReceiptNumber');
       const normalizedReceipt = receiptFromCallback
@@ -601,15 +629,6 @@ router.post('/mpesaCallback', async (req, res) => {
 
       baseMetadata.paymentId = payment.id;
       baseMetadata.receiptNumber = normalizedReceipt;
-      baseMetadata.resultCode = ResultCode;
-      baseMetadata.resultDesc = ResultDesc ?? null;
-      if (ResultCode !== MPESA_SUCCESS_CODE) {
-        baseMetadata.overrideApplied = true;
-        baseMetadata.statusBeforeOverride = existing.status;
-        baseMetadata.overrideReason = ResultCode === MPESA_CANCELLED_CODE
-          ? 'MPESA cancellation overridden and treated as success.'
-          : 'MPESA failure overridden and treated as success.';
-      }
 
       await tx.mpesaStkRequest.update({
         where: { id: existing.id },
