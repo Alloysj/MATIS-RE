@@ -552,13 +552,14 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
                       <TableHead>Monthly Target</TableHead>
                       <TableHead>Last Deposit</TableHead>
                       <TableHead>Vehicle</TableHead>
+                      <TableHead>Reports</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {isLoading
-                      ? renderLoadingRow(6)
+                      ? renderLoadingRow(7)
                       : filteredSavings.length === 0
-                      ? renderEmptyRow(6, 'No savings accounts found.')
+                      ? renderEmptyRow(7, 'No savings accounts found.')
                       : filteredSavings.map(account => (
                           <TableRow key={account.id}>
                             <TableCell>
@@ -583,6 +584,20 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
                               )}
                             </TableCell>
                             <TableCell>{account.vehicle?.plateNumber ?? 'N/A'}</TableCell>
+                            <TableCell>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  if (typeof window !== 'undefined') {
+                                    sessionStorage.setItem('financialReports.accountId', account.id);
+                                  }
+                                  onNavigate('admin/reports/financials');
+                                }}
+                              >
+                                View Reports
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         ))}
                   </TableBody>

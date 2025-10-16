@@ -12,6 +12,138 @@ const DASHBOARD_LOANS_CACHE_KEY = `${ADMIN_BASE}/dashboard/loans`;
 const DASHBOARD_INSURANCE_CACHE_KEY = `${ADMIN_BASE}/dashboard/insurance`;
 const DASHBOARD_SAVINGS_CACHE_KEY = `${ADMIN_BASE}/dashboard/savings`;
 const ADMIN_LOANS_CACHE_KEY = `${ADMIN_BASE}/loans`;
+
+export type AdminReportQuery = {
+  startDate?: string;
+  endDate?: string;
+  month?: string;
+  page?: number;
+  pageSize?: number;
+  userId?: string;
+  vehicleId?: string;
+  routeId?: string;
+  driverId?: string;
+  accountId?: string;
+  loanStatus?: string[];
+  loanType?: string[];
+  expenseStatus?: string[];
+  expenseCategory?: string;
+};
+
+export type PaymentCategorySummary = {
+  category: string;
+  label: string;
+  amount: number;
+  count: number;
+};
+
+export type RemittanceAllocation = {
+  allocationId: string;
+  amount: number;
+  payment: {
+    id: string;
+    mpesaReference: string | null;
+    date: string;
+    status: string;
+    totalAmount: number;
+  };
+  user: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+  } | null;
+  driver: {
+    id: string;
+    firstName: string | null;
+    lastName: string | null;
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+  } | null;
+  vehicle: {
+    id: string;
+    plateNumber: string | null;
+    model: string | null;
+  } | null;
+  route: {
+    id: string;
+    name: string | null;
+  } | null;
+  allocations: Array<{
+    category: string;
+    label: string;
+    amount: number;
+  }>;
+};
+
+export type RemittanceReportResponse = {
+  range: { startDate: string; endDate: string };
+  filters: Record<string, unknown>;
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalCount: number;
+    totalPages: number;
+    hasNext: boolean;
+  };
+  totals: {
+    amount: number;
+    paymentCount: number;
+  };
+  allocationSummary: PaymentCategorySummary[];
+  items: RemittanceAllocation[];
+};
+
+export type LoanRepaymentTransaction = {
+  id: string;
+  date: string;
+  amount: number;
+  account: {
+    id: string;
+    accountType: string | null;
+    vehicle: { id: string; plateNumber: string | null } | null;
+  } | null;
+};
+
+export type LoanRepaymentAllocation = RemittanceAllocation & {
+  transactions: LoanRepaymentTransaction[];
+};
+
+export type LoanRepaymentReportResponse = {
+  range: { startDate: string; endDate: string };
+  filters: Record<string, unknown>;
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalCount: number;
+    totalPages: number;
+    hasNext: boolean;
+  };
+  totals: {
+    amount: number;
+    repaymentCount: number;
+  };
+  allocationSummary: PaymentCategorySummary[];
+  items: LoanRepaymentAllocation[];
+};
+
+export type ExportSummaryResponse = {
+  range: { startDate: string; endDate: string };
+  filters: Record<string, unknown>;
+  totals: {
+    remittance: number;
+    insurance: number;
+    loanRepayments: number;
+    savings: number;
+  };
+  allocationSummary: PaymentCategorySummary[];
+  payments: { totalAmount: number; count: number };
+  loans: { totalAmount: number; count: number };
+  expenses: { totalAmount: number; count: number };
+};
 function mergeHeaders(method: FetchMethod, initHeaders?: HeadersInit) {
   const headers: Record<string, string> = { ...authHeaders() };
   const input = initHeaders ? new Headers(initHeaders) : undefined;
@@ -125,6 +257,36 @@ export function invalidateAdminCache(prefix: string) {
     }
   }
 }
+
+const buildReportQuery = (params: AdminReportQuery = {}) => {
+  const search = new URLSearchParams();
+
+  if (params.startDate) search.set('startDate', params.startDate);
+  if (params.endDate) search.set('endDate', params.endDate);
+  if (params.month) search.set('month', params.month);
+  if (params.page) search.set('page', String(params.page));
+  if (params.pageSize) search.set('pageSize', String(params.pageSize));
+  if (params.userId) search.set('userId', params.userId);
+  if (params.vehicleId) search.set('vehicleId', params.vehicleId);
+  if (params.routeId) search.set('routeId', params.routeId);
+  if (params.driverId) search.set('driverId', params.driverId);
+  if (params.accountId) search.set('accountId', params.accountId);
+  if (params.loanStatus && params.loanStatus.length > 0) {
+    search.set('loanStatus', params.loanStatus.join(','));
+  }
+  if (params.loanType && params.loanType.length > 0) {
+    search.set('loanType', params.loanType.join(','));
+  }
+  if (params.expenseStatus && params.expenseStatus.length > 0) {
+    search.set('expenseStatus', params.expenseStatus.join(','));
+  }
+  if (params.expenseCategory) {
+    search.set('expenseCategory', params.expenseCategory);
+  }
+
+  const query = search.toString();
+  return query ? `?${query}` : '';
+};
 
 const invalidateAdminCaches = (prefixes: string[]) => {
   prefixes.forEach(prefix => invalidateAdminCache(prefix));
@@ -936,6 +1098,18 @@ export async function addRolePermission(
 
 export async function removeRolePermission(rolePermissionId: string): Promise<void> {
   await request(`/api/rolePermissions/${rolePermissionId}`, { method: 'DELETE' });
+}
+
+export async function fetchRemittanceReport(params: AdminReportQuery = {}): Promise<RemittanceReportResponse> {
+  return request(`${ADMIN_BASE}/reports/remittances${buildReportQuery(params)}`);
+}
+
+export async function fetchLoanRepaymentReport(params: AdminReportQuery = {}): Promise<LoanRepaymentReportResponse> {
+  return request(`${ADMIN_BASE}/reports/loan-repayments${buildReportQuery(params)}`);
+}
+
+export async function fetchExportSummary(params: AdminReportQuery = {}): Promise<ExportSummaryResponse> {
+  return request(`${ADMIN_BASE}/reports/export/summary${buildReportQuery(params)}`);
 }
 
 

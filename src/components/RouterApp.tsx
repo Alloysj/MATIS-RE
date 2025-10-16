@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { RouteProtectionService, User } from '../services/routeProtection';
+import { subscribeToUnauthorized, clearAuthToken } from '../services/api';
 import { ProtectedRoute } from './ProtectedRoute';
 
 // Import all your components
@@ -86,6 +87,7 @@ function RouterApp() {
   };
 
   const handleLogout = () => {
+    clearAuthToken();
     setUser(null);
   };
 
@@ -123,6 +125,29 @@ function AppRoutes({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+
+  const UserProfileRoute = () => {
+    const { userId } = useParams<{ userId: string }>();
+    return (
+      <ProtectedRoute user={user} routePath="admin/users/profiles" onNavigate={handleNavigate}>
+        <UserProfiles
+          user={user}
+          onNavigate={handleNavigate}
+          onLogout={onLogout}
+          selectedUserId={userId}
+        />
+      </ProtectedRoute>
+    );
+  };
+
+  useEffect(() => {
+    const unsubscribe = subscribeToUnauthorized(() => {
+      onLogout();
+      navigate('/login', { replace: true, state: { reason: 'sessionExpired' } });
+    });
+
+    return unsubscribe;
+  }, [onLogout, navigate]);
 
   const handleNavigate = (page: string) => {
     navigate(`/${page === 'home' ? '' : page}`);
@@ -273,6 +298,7 @@ function AppRoutes({
               </ProtectedRoute>
             } 
           />
+          <Route path="/admin/users/user_profile/:userId" element={<UserProfileRoute />} />
           <Route 
             path="/admin/fleet" 
             element={

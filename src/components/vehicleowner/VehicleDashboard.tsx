@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { Car, CreditCard, PiggyBank, Shield, User, ChevronDown, ChevronUp, MapPin, Calendar, DollarSign, Plus } from 'lucide-react';
+import { Car, CreditCard, PiggyBank, Shield, User, ChevronDown, ChevronUp, MapPin, Calendar, DollarSign, Plus, Loader2 } from 'lucide-react';
 import { assignDriver } from '../../services/matatus';
 import { processPayment, checkPaymentStatus } from '../../services/finance';
 import { useVehicleOwnerData } from '../../context/VehicleOwnerDataContext';
@@ -153,7 +153,26 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
 
     try {
       const response = await processPayment({ phone, amount: amountValue, vehicleId });
+
       setCheckoutRequestId(response.checkoutRequestId);
+
+      if (response.status === 'completed') {
+        setPaymentFeedback({ type: 'info', message: 'Processing payment...' });
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        setPaymentFeedback({ type: 'success', message: response.message ?? 'Payment complete.' });
+        setPaymentAmount('');
+        setSelectedVehicleForPayment(null);
+        try {
+          await Promise.allSettled([refreshFinance(), refreshMatatu()]);
+        } catch (refreshError) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to refresh data after payment', refreshError);
+        }
+        setIsProcessingPayment(false);
+        setCheckoutRequestId(null);
+        return;
+      }
+
       setPaymentFeedback({ type: 'info', message: response.message ?? 'STK push sent. Awaiting confirmation...' });
       void pollPaymentStatus(response.checkoutRequestId);
     } catch (error) {
@@ -337,7 +356,14 @@ export function VehicleDashboard({ user, onNavigate, onLogout }: VehicleDashboar
                             disabled={isProcessingPayment || !paymentAmount.trim() || !paymentPhone.trim()}
                             className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-white disabled:opacity-60 disabled:cursor-not-allowed"
                           >
-                            {isProcessingPayment ? 'Processing...' : 'Submit Payment'}
+                            {isProcessingPayment ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Processing...
+                              </>
+                            ) : (
+                              'Submit Payment'
+                            )}
                           </Button>
                         </div>
                       </div>
