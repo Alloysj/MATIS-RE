@@ -180,14 +180,17 @@ const vehicleSummaryInclude = {
   },
   savingsAccounts: {
     select: {
-      balance: true
+      id: true,
+      balance: true,
+      accountType: true
     }
   },
   loans: {
     select: {
       id: true,
       amount: true,
-      status: true
+      status: true,
+      type: true
     }
   },
   payments: {
@@ -806,6 +809,28 @@ const mapVehicleToSummary = (vehicle: VehicleWithSummaryRelations) => {
       outstandingLoanAmount,
       activeLoanCount: activeLoans.length
     },
+    registrationDate: vehicle.dateAdded.toISOString(),
+    registrationExpiry: vehicle.registrationExpiry ? vehicle.registrationExpiry.toISOString() : null,
+    insuranceProvider: vehicle.insuranceProvider ?? null,
+    policyType: vehicle.policyType ?? null,
+    insuranceExpiry: vehicle.insuranceExpiry ? vehicle.insuranceExpiry.toISOString() : null,
+    premium: decimalToNumber(vehicle.premium),
+    capacity: vehicle.capacity ?? null,
+    chassisNumber: vehicle.chassisNumber ?? null,
+    engineNumber: vehicle.engineNumber ?? null,
+    savingsAccounts: vehicle.savingsAccounts.map((account) => ({
+      id: account.id,
+      accountType: account.accountType ?? null,
+      balance: decimalToNumber(account.balance)
+    })),
+    loans: vehicle.loans.map((loan) => ({
+      id: loan.id,
+      amount: decimalToNumber(loan.amount),
+      statusCode: loan.status,
+      status: formatEnumLabel(loan.status) ?? loan.status,
+      typeCode: loan.type,
+      type: formatEnumLabel(loan.type) ?? loan.type
+    })),
     lastPayment: lastPayment
       ? {
           id: lastPayment.id,

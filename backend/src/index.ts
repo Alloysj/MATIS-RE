@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import { createCrudRouter } from './crudRouter';
-import supabase from './supabaseClient';
 import usersRouter from './routes/users';
 import matatusRouter from './routes/matatus';
 import financeRouter from './routes/finance';
@@ -71,11 +70,16 @@ app.use('/api/staff', staffRouter);
 const port = process.env.PORT || 3000;
 
 app.get('/api/health', async (_req, res) => {
-  const { error } = await supabase.from('users').select('id').limit(1);
-  if (error) {
-    return res.status(500).json({ status: 'error', message: error.message });
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok' });
+  } catch (error) {
+    console.error('Health check failed', error);
+    res.status(500).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Database connection failed',
+    });
   }
-  res.json({ status: 'ok' });
 });
 
 app.listen(port, () => {

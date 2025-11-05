@@ -22,7 +22,8 @@ import {
   Eye,
   UserPlus,
   Download,
-  Loader2
+  Loader2,
+  ExternalLink
 } from 'lucide-react';
 import {
   AdminVehicleSummary,
@@ -618,9 +619,15 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
               <TableRow key={vehicle.id}>
                 <TableCell>
                   <div>
-                    <p className="font-medium text-gray-900">{vehicle.plateNumber}</p>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate(`admin/fleet/${vehicle.id}`)}
+                      className="font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                    >
+                      {vehicle.plateNumber}
+                    </button>
                     <p className="text-sm text-gray-500">
-                      {[vehicle.model, vehicle.yearOfManufacture?.toString()].filter(Boolean).join(' � ')}
+                      {[vehicle.model, vehicle.yearOfManufacture?.toString()].filter(Boolean).join(' • ')}
                     </p>
                   </div>
                 </TableCell>
@@ -677,6 +684,10 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => onNavigate(`admin/fleet/${vehicle.id}`)}>
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        View Details
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleOpenVehicleForm('edit', vehicle)}>
                         <Edit className="h-4 w-4 mr-2" />
                         Edit Vehicle

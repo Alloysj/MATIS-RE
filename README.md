@@ -12,9 +12,9 @@ MATIS is a full-stack platform that digitises the daily operations of a matatu S
 
 ## Tech Stack
 - **Frontend**: React 18 with Vite, Radix UI components, Tailwind utilities, React Router, Recharts for analytics.
-- **Backend**: Express 5 with TypeScript, Prisma ORM, Supabase client for supplementary queries, JSON Web Token auth middleware.
-- **Database**: PostgreSQL (hosted via Supabase by default) managed with Prisma migrations and schema definitions.
-- **Integrations**: Safaricom M-PESA STK push APIs for payment initiation and callback processing, Supabase REST for health checks.
+- **Backend**: Express 5 with TypeScript, Prisma ORM, and JSON Web Token auth middleware.
+- **Database**: PostgreSQL (local development targets a standard Postgres instance managed with Prisma).
+- **Integrations**: Safaricom M-PESA STK push APIs for payment initiation and callback processing.
 
 ## How MATIS Tracks Daily Remittances and Loans
 1. **Initiation**: Back-office staff trigger a remittance from MATIS; the backend issues an M-PESA STK push to the crew member using the configured shortcode and passkey.
@@ -27,32 +27,28 @@ MATIS is a full-stack platform that digitises the daily operations of a matatu S
 ## Repository Layout
 - `backend/` - Express API, Prisma schema, MPESA integration, and route modules (finance, users, matatus, staff, admin).
 - `src/` - React application (member and staff portals, dashboards, forms).
-- `supabase/` - SQL helpers and seed data used by Supabase-hosted instances.
 - `backend/prisma/schema.prisma` - Canonical data model for users, vehicles, payments, loans, savings, and staff operations.
 
 ## Prerequisites
 - Node.js 18 or newer and npm.
-- PostgreSQL 14 or newer (Supabase works out of the box, but any Postgres instance is supported).
+- PostgreSQL 14 or newer (local or hosted).
 - Safaricom M-PESA Daraja credentials (consumer key and secret, shortcode, passkey) for live STK push testing.
-- Optional: Supabase project for hosting Postgres and leveraging the Supabase dashboard.
 
 ## Backend Setup
 ```bash
 cd backend
 npm install
-cp .env.example .env   # create if you prefer not to reuse the committed file
-# update database, Supabase, JWT, and MPESA settings
+cp .env.example .env   # or create a fresh file for local overrides
+# update Postgres connection, JWT, and MPESA settings
 npm run prisma:generate
 npx prisma migrate dev  # or `npm run prisma:migrate` to apply the latest migrations
 npm run dev             # starts Express on the port defined in .env (default 4000)
 ```
 
 ### Required Environment Variables (`backend/.env`)
-- `DATABASE_URL` - Postgres connection string (can be Supabase).
-- `SUPABASE_URL`, `SUPABASE_ANON_KEY` - used for health checks and optional Supabase queries.
+- `DATABASE_URL` - Postgres connection string (local development typically uses `postgresql://postgres:postgres@localhost:5432/matis_sacco?schema=public`).
 - `JWT_SECRET` - signing key for API tokens.
 - `MPESA_CONSUMER_KEY`, `MPESA_CONSUMER_SECRET`, `MPESA_SHORTCODE`, `MPESA_PASSKEY`, `MPESA_CALLBACK_URL` - STK push credentials and callback endpoint registered with Safaricom.
-- `PRISMA_DISABLE_PREPARED_STATEMENTS` - recommended `true` when using PgBouncer.
 
 ## Frontend Setup
 ```bash
@@ -67,7 +63,7 @@ Configure API base URLs inside the frontend service modules (for example `src/se
 - For automated tests, add scripts to the respective `package.json` files (the project currently relies on manual QA and API smoke tests).
 
 ## Deployment Notes
-- Host the backend on a Node-compatible environment (Render, Railway, Supabase Edge Functions, etc.) with environment variables configured as above.
+- Host the backend on a Node-compatible environment (Render, Railway, Fly.io, etc.) with environment variables configured as above.
 - Ensure your public backend URL is registered as the `MPESA_CALLBACK_URL` so Safaricom can reach the `/api/finance/mpesaCallback` endpoint.
 - Serve the frontend as a static bundle (Vite build output) via your preferred hosting provider (Netlify, Vercel, S3/CloudFront, and similar).
 - Set up HTTPS for both backend and frontend; Safaricom requires secure callback URLs in production.

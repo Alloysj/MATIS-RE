@@ -376,12 +376,21 @@ export interface AdminVehicleSummary {
   model: string | null;
   vehicleType: string | null;
   yearOfManufacture: number | null;
+  capacity: number | null;
+  chassisNumber: string | null;
+  engineNumber: string | null;
   statusCode: VehicleStatusCode;
   status: string;
   registrationStatusCode: RegistrationStatusCode;
   registrationStatus: string;
   insuranceStatusCode: 'ACTIVE' | 'EXPIRED' | 'PENDING';
   insuranceStatus: string;
+  registrationDate: string;
+  registrationExpiry: string | null;
+  insuranceExpiry: string | null;
+  insuranceProvider: string | null;
+  policyType: string | null;
+  premium: number | null;
   owner: {
     id: string;
     name: string;
@@ -403,6 +412,19 @@ export interface AdminVehicleSummary {
     outstandingLoanAmount: number;
     activeLoanCount: number;
   };
+  savingsAccounts: {
+    id: string;
+    accountType: string | null;
+    balance: number | null;
+  }[];
+  loans: {
+    id: string;
+    amount: number | null;
+    statusCode: LoanStatusCode;
+    status: string;
+    typeCode: LoanTypeCode;
+    type: string;
+  }[];
   lastPayment: {
     id: string;
     date: string;

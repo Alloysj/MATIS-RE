@@ -34,6 +34,7 @@ import { UserRoles } from './admin/UserRoles';
 import { CreateUser } from './admin/CreateUser';
 import { UserProfiles } from './admin/UserProfiles';
 import { FleetManagement } from './admin/FleetManagement';
+import { ViewVehicle } from './admin/ViewVehicle';
 import { FinancialOverview } from './admin/FinancialOverview';
 import { LoanApplications } from './admin/LoanApplications';
 import { RouteManagement } from './admin/RouteManagement';
@@ -135,6 +136,20 @@ function AppRoutes({
           onNavigate={handleNavigate}
           onLogout={onLogout}
           selectedUserId={userId}
+        />
+      </ProtectedRoute>
+    );
+  };
+
+  const FleetVehicleRoute = () => {
+    const { vehicleId } = useParams<{ vehicleId: string }>();
+    return (
+      <ProtectedRoute user={user} routePath="admin/fleet" onNavigate={handleNavigate}>
+        <ViewVehicle
+          user={user}
+          onNavigate={handleNavigate}
+          onLogout={onLogout}
+          vehicleId={vehicleId ?? ''}
         />
       </ProtectedRoute>
     );
@@ -307,6 +322,7 @@ function AppRoutes({
               </ProtectedRoute>
             } 
           />
+          <Route path="/admin/fleet/:vehicleId" element={<FleetVehicleRoute />} />
           <Route 
             path="/admin/financials" 
             element={
