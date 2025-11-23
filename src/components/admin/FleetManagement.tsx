@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -40,11 +40,21 @@ import {
   AdminVehicleUpdatePayload,
   AdminInsurancePaymentRequest,
   fetchAdminRoutes,
-  AdminRoute,
-  getCachedAdminFleetVehicles,
-  getCachedAdminRoutes
+  AdminRoute
 } from '../../services/admin';
 import { AvailableDriver, getAvailableDrivers } from '../../services/matatus';
+
+interface FleetLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+}
 
 interface FleetManagementProps {
   user: {
@@ -54,6 +64,10 @@ interface FleetManagementProps {
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<FleetLayoutProps>;
+  currentPage?: string;
+  basePath?: string;
+  routesPath?: string;
 }
 
 type VehicleFormMode = 'create' | 'edit';
@@ -172,7 +186,15 @@ const routeToOption = (route: AdminRoute) => ({
   id: route.id,
   name: route.name
 });
-export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementProps) {
+export function FleetManagement({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/fleet',
+  basePath = 'admin/fleet',
+  routesPath = 'admin/fleet/routes'
+}: FleetManagementProps) {
   const [vehicles, setVehicles] = useState<AdminVehicleSummary[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState<boolean>(true);
   const [vehiclesError, setVehiclesError] = useState<string | null>(null);
@@ -621,7 +643,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                   <div>
                     <button
                       type="button"
-                      onClick={() => onNavigate(`admin/fleet/${vehicle.id}`)}
+                      onClick={() => onNavigate(`${basePath}/${vehicle.id}`)}
                       className="font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors"
                     >
                       {vehicle.plateNumber}
@@ -684,7 +706,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => onNavigate(`admin/fleet/${vehicle.id}`)}>
+                      <DropdownMenuItem onClick={() => onNavigate(`${basePath}/${vehicle.id}`)}>
                         <ExternalLink className="h-4 w-4 mr-2" />
                         View Details
                       </DropdownMenuItem>
@@ -730,7 +752,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
   );
 
   return (
-    <AdminLayout user={user} currentPage="admin/fleet" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -738,7 +760,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
             <p className="text-gray-600 mt-1">Manage vehicle registrations, assignments, and compliance</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={() => onNavigate('admin/fleet/routes')}>
+            <Button variant="outline" onClick={() => onNavigate(routesPath)}>
               <MapPin className="h-4 w-4 mr-2" />
               Manage Routes
             </Button>
@@ -1200,6 +1222,6 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

@@ -14,7 +14,8 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Shield
 } from 'lucide-react';
 
 interface StaffLayoutProps {
@@ -33,7 +34,7 @@ export function StaffLayout({ children, user, currentPage, onNavigate, onLogout 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const navigation = [
+  const baseNavigation = [
     {
       name: 'Dashboard',
       href: 'staff/dashboard',
@@ -77,6 +78,18 @@ export function StaffLayout({ children, user, currentPage, onNavigate, onLogout 
       current: currentPage === 'staff/reports'
     }
   ];
+
+  const navigation = [...baseNavigation];
+  const canViewTreasury = user?.role === 'Treasurer' || user?.role === 'Admin';
+
+  if (canViewTreasury) {
+    navigation.splice(2, 0, {
+      name: 'Finance Module',
+      href: 'staff/treasurer',
+      icon: Shield,
+      current: currentPage === 'staff/treasurer'
+    });
+  }
 
   const toggleSidebarCollapse = () => {
     setSidebarCollapsed(!sidebarCollapsed);

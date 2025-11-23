@@ -35,9 +35,9 @@ const ROLE_PERMISSION_FALLBACK: Record<User['role'], string[]> = {
     'view_reports',
     'view_all_reports'
   ],
-  Staff: ['manage_loans', 'manage_expenses', 'manage_salary', 'view_reports'],
-  Chairperson: ['manage_board', 'view_reports', 'manage_board_matters'],
-  Treasurer: ['manage_financials', 'view_reports', 'manage_expenses']
+  Staff: ['view_own_profile', 'manage_loans', 'manage_expenses', 'manage_salary', 'manage_fleet', 'view_reports'],
+  Chairperson: ['view_own_profile', 'manage_board', 'manage_board_matters', 'manage_loans', 'manage_fleet', 'view_reports'],
+  Treasurer: ['view_own_profile', 'manage_financials', 'manage_expenses', 'manage_salary', 'manage_loans', 'view_reports']
 };
 
 // Define route configurations with their access requirements
@@ -183,6 +183,11 @@ export const routeConfigs: Record<string, RouteConfig> = {
   'staff/salary': { 
     path: 'staff/salary', 
     allowedRoles: ['Staff', 'Treasurer'],
+    requiredPermissions: ['manage_salary']
+  },
+  'staff/treasurer': { 
+    path: 'staff/treasurer', 
+    allowedRoles: ['Treasurer', 'Admin'],
     requiredPermissions: ['manage_financials']
   },
   'staff/loanmanagement': { 
@@ -400,6 +405,7 @@ export class RouteProtectionService {
         { label: 'User Management', route: 'admin/users' },
         { label: 'Fleet Management', route: 'admin/fleet' },
         { label: 'Financial Overview', route: 'admin/financials' },
+        { label: 'Treasury Module', route: 'staff/treasurer' },
         { label: 'Loan Applications', route: 'admin/loans' },
         { label: 'Reports', route: 'admin/reports/users' }
       ].filter(item => this.isAuthorized(user, item.route).authorized);
@@ -413,6 +419,7 @@ export class RouteProtectionService {
       }
     } else if (['Staff', 'Chairperson', 'Treasurer'].includes(user.role)) {
       const staffItems = [
+        { label: 'Finance Module', route: 'staff/treasurer' },
         { label: 'Loan Management', route: 'staff/loanmanagement' },
         { label: 'Expense Tracking', route: 'staff/expensetracking' },
         { label: 'Matatu Management', route: 'staff/matatumanagement' },

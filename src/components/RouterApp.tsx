@@ -50,6 +50,7 @@ import { LoanManagement } from './staff/LoanManagement';
 import { ExpenseTracking } from './staff/ExpenseTracking';
 import { MatatuManagement } from './staff/MatatuManagement';
 import { Reports } from './staff/Reports';
+import { TreasurerDashboard } from './staff/TreasurerDashboard';
 import { NotFound } from './NotFound';
 
 // Main router component that handles authentication and routing
@@ -395,7 +396,15 @@ function AppRoutes({
               <ProtectedRoute user={user} routePath="staff/salary" onNavigate={handleNavigate}>
                 <SalaryManagement user={user} onNavigate={handleNavigate} onLogout={onLogout} />
               </ProtectedRoute>
-            } 
+            }
+          />
+          <Route 
+            path="/staff/treasurer" 
+            element={
+              <ProtectedRoute user={user} routePath="staff/treasurer" onNavigate={handleNavigate}>
+                <TreasurerDashboard user={user} onNavigate={handleNavigate} onLogout={onLogout} />
+              </ProtectedRoute>
+            }
           />
           <Route 
             path="/staff/loanmanagement" 

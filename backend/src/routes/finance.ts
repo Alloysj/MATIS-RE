@@ -47,6 +47,105 @@ const decimalToNumber = (value: Prisma.Decimal | number | string | null | undefi
 
 const roundCurrency = (value: number) => Number.parseFloat(value.toFixed(2));
 
+const firstQueryValue = (value: unknown): string | undefined => {
+  if (Array.isArray(value)) {
+    return value.length ? String(value[0]) : undefined;
+  }
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : undefined;
+};
+
+const parseDateInput = (value?: string) => {
+  if (!value) {
+    return new Date();
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+};
+
+const startOfDay = (date: Date) => {
+  const normalized = new Date(date);
+  normalized.setHours(0, 0, 0, 0);
+  return normalized;
+};
+
+const endOfDay = (date: Date) => {
+  const normalized = new Date(date);
+  normalized.setHours(23, 59, 59, 999);
+  return normalized;
+};
+
+const resolveRange = (date: Date, range?: string, start?: string, end?: string) => {
+  const normalizedRange = (range ?? 'today').toLowerCase();
+  let startDate = startOfDay(date);
+  let endDate = endOfDay(date);
+
+  if (normalizedRange === 'week') {
+    const temp = new Date(date);
+    temp.setDate(temp.getDate() - 6);
+    startDate = startOfDay(temp);
+  } else if (normalizedRange === 'month') {
+    startDate = startOfDay(new Date(date.getFullYear(), date.getMonth(), 1));
+  } else if (normalizedRange === 'custom') {
+    const customStart = start ? new Date(start) : null;
+    const customEnd = end ? new Date(end) : null;
+    if (customStart && !Number.isNaN(customStart.getTime())) {
+      startDate = startOfDay(customStart);
+    }
+    if (customEnd && !Number.isNaN(customEnd.getTime())) {
+      endDate = endOfDay(customEnd);
+    }
+  }
+
+  return { startDate, endDate };
+};
+
+const userSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  phone: true,
+  memberNumber: true
+} as const;
+
+const vehicleWithRouteSelect = {
+  id: true,
+  plateNumber: true,
+  route: { select: { name: true } }
+} as const;
+
+const paymentWithMemberInclude = {
+  user: { select: userSelect },
+  vehicle: { select: vehicleWithRouteSelect }
+} as const;
+
+type PaymentWithMember = Prisma.PaymentGetPayload<{ include: typeof paymentWithMemberInclude }>;
+
+const paymentWithAllocationsInclude = {
+  allocations: true,
+  user: { select: userSelect },
+  vehicle: { select: vehicleWithRouteSelect }
+} as const;
+
+type PaymentWithAllocations = Prisma.PaymentGetPayload<{ include: typeof paymentWithAllocationsInclude }>;
+
+const formatUserName = (user?: { firstName: string | null; lastName: string | null }) => {
+  if (!user) return 'Unknown Member';
+  const first = user.firstName ?? '';
+  const last = user.lastName ?? '';
+  const full = `${first} ${last}`.trim();
+  return full || 'Unknown Member';
+};
+
+const formatMemberNumber = (memberNumber?: bigint | number | null) => {
+  if (typeof memberNumber === 'bigint') {
+    return memberNumber.toString();
+  }
+  if (typeof memberNumber === 'number') {
+    return Number.isFinite(memberNumber) ? String(memberNumber) : 'N/A';
+  }
+  return memberNumber ?? 'N/A';
+};
+
 const createMonthBuckets = (monthCount: number): MonthBucket[] => {
   const normalized = clampNumber(Math.floor(monthCount), 1, 24);
   const buckets: MonthBucket[] = [];
@@ -172,9 +271,98 @@ router.get('/loans', async (_req, res) => {
   res.json(loans);
 });
 
-router.get('/payments', async (_req, res) => {
-  const payments = await prisma.payment.findMany();
-  res.json(payments);
+router.get('/payments', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const searchValue = firstQueryValue(req.query.search)?.trim();
+    const limitParam = firstQueryValue(req.query.limit);
+    const requestedLimit = limitParam ? Number.parseInt(limitParam, 10) : Number.NaN;
+    const limit = clampNumber(Number.isFinite(requestedLimit) ? requestedLimit : 15, 1, 50);
+
+    let where: Prisma.PaymentWhereInput = {};
+    if (searchValue) {
+      const orFilters: Prisma.PaymentWhereInput[] = [
+        { user: { is: { firstName: { contains: searchValue, mode: 'insensitive' } } } },
+        { user: { is: { lastName: { contains: searchValue, mode: 'insensitive' } } } },
+        { user: { is: { phone: { contains: searchValue, mode: 'insensitive' } } } },
+        { vehicle: { is: { plateNumber: { contains: searchValue, mode: 'insensitive' } } } },
+        { mpesaReference: { contains: searchValue, mode: 'insensitive' } }
+      ];
+
+      const numericMember = Number.parseInt(searchValue, 10);
+      if (Number.isFinite(numericMember)) {
+        orFilters.push({
+          user: { is: { memberNumber: BigInt(numericMember) } }
+        });
+      }
+
+      where = { OR: orFilters };
+    }
+
+    const payments = (await prisma.payment.findMany({
+      where,
+      include: paymentWithMemberInclude,
+      orderBy: { paymentDate: 'desc' },
+      take: limit
+    })) as PaymentWithMember[];
+
+    const membersMap = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        phone: string;
+        memberNumber: string;
+        vehicleId?: string;
+        vehiclePlate?: string;
+        route?: string;
+      }
+    >();
+
+    payments.forEach((payment) => {
+      const key = payment.user?.id ?? payment.id;
+      if (membersMap.has(key)) {
+        return;
+      }
+      membersMap.set(key, {
+        id: payment.user?.id ?? payment.id,
+        name: formatUserName(payment.user ?? undefined),
+        phone: payment.user?.phone ?? '',
+        memberNumber: formatMemberNumber(payment.user?.memberNumber),
+        vehicleId: payment.vehicle?.id ?? undefined,
+        vehiclePlate: payment.vehicle?.plateNumber ?? undefined,
+        route: payment.vehicle?.route?.name ?? undefined
+      });
+    });
+
+    const formattedPayments = payments.map((payment) => ({
+      id: payment.id,
+      totalAmount: roundCurrency(decimalToNumber(payment.totalAmount)),
+      paymentDate: payment.paymentDate,
+      user: payment.user
+        ? {
+            id: payment.user.id,
+            name: formatUserName(payment.user),
+            phone: payment.user.phone ?? null,
+            memberNumber: formatMemberNumber(payment.user.memberNumber)
+          }
+        : null,
+      vehicle: payment.vehicle
+        ? {
+            id: payment.vehicle.id,
+            plateNumber: payment.vehicle.plateNumber,
+            route: payment.vehicle.route?.name ?? null
+          }
+        : null
+    }));
+
+    return res.json({
+      members: Array.from(membersMap.values()),
+      payments: formattedPayments
+    });
+  } catch (error) {
+    console.error('Failed to search payments', error);
+    return res.status(500).json({ message: 'Failed to load payments' });
+  }
 });
 
 router.get('/payments/:payment_id', authenticate, async (req, res) => {
@@ -647,6 +835,298 @@ router.post('/mpesaCallback', async (req, res) => {
   } catch (error) {
     console.error('Failed to process MPESA callback', error);
     return res.status(200).json({ status: 'error', message: 'Callback processing failed' });
+  }
+});
+
+router.get('/summary/daily', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const dateParam = firstQueryValue(req.query.date);
+    const targetDate = parseDateInput(dateParam);
+    const dayStart = startOfDay(targetDate);
+    const dayEnd = endOfDay(targetDate);
+    const trendStart = startOfDay(new Date(dayStart));
+    trendStart.setDate(trendStart.getDate() - 6);
+
+    const [
+      allocationTotalsRaw,
+      expenseAggregate,
+      paymentsWindowRaw,
+      expensesWindow
+    ] = await Promise.all([
+      prisma.paymentAllocation.groupBy({
+        by: ['category'],
+        where: {
+          payment: {
+            paymentDate: { gte: dayStart, lte: dayEnd },
+            status: PaymentStatus.COMPLETED
+          }
+        },
+        _sum: { amount: true },
+        orderBy: { category: 'asc' }
+      }),
+      prisma.transaction.aggregate({
+        _sum: { amount: true },
+        where: {
+          type: TransactionType.EXPENSE,
+          date: { gte: dayStart, lte: dayEnd }
+        }
+      }),
+      prisma.payment.findMany({
+        where: {
+          paymentDate: { gte: trendStart, lte: dayEnd },
+          status: PaymentStatus.COMPLETED
+        },
+        include: paymentWithAllocationsInclude,
+        orderBy: { paymentDate: 'desc' }
+      }),
+      prisma.transaction.findMany({
+        where: {
+          type: TransactionType.EXPENSE,
+          date: { gte: trendStart, lte: dayEnd }
+        },
+        select: { amount: true, date: true }
+      })
+    ]);
+
+    const allocationTotals = allocationTotalsRaw as Array<{ category: PaymentCategory; _sum: { amount: Prisma.Decimal | null } }>;
+    const paymentsWindow = paymentsWindowRaw as PaymentWithAllocations[];
+    const expensesList = expensesWindow as Array<{ amount: Prisma.Decimal; date: Date }>;
+
+    const totals = {
+      operations: 0,
+      insurance: 0,
+      loanRepayments: 0,
+      savings: 0,
+      expenditures: roundCurrency(decimalToNumber(expenseAggregate._sum.amount ?? 0)),
+      netFlow: 0
+    };
+
+    allocationTotals.forEach((allocation) => {
+      const totalValue = allocation._sum?.amount ?? 0;
+      const value = roundCurrency(decimalToNumber(totalValue));
+      if (allocation.category === PaymentCategory.OPERATIONS) {
+        totals.operations += value;
+      } else if (allocation.category === PaymentCategory.INSURANCE) {
+        totals.insurance += value;
+      } else if (allocation.category === PaymentCategory.LOAN_REPAYMENT) {
+        totals.loanRepayments += value;
+      } else if (allocation.category === PaymentCategory.SAVINGS) {
+        totals.savings += value;
+      }
+    });
+
+    const totalCollections = totals.operations + totals.insurance + totals.loanRepayments + totals.savings;
+    totals.netFlow = roundCurrency(totalCollections - totals.expenditures);
+
+    const todaysPayments = paymentsWindow.filter(
+      (payment) => payment.paymentDate >= dayStart && payment.paymentDate <= dayEnd
+    );
+
+    const expectations = {
+      expectedTrips: todaysPayments.length,
+      actualTrips: todaysPayments.length,
+      expectedOps: todaysPayments.length * decimalToNumber(DAILY_REMITTANCE),
+      expectedInsurance: todaysPayments.length * decimalToNumber(DAILY_INSURANCE)
+    };
+
+    const recentRemittances = todaysPayments.slice(0, 5).map((payment) => ({
+      id: payment.id,
+      member: formatUserName(payment.user ?? undefined),
+      memberNumber: formatMemberNumber(payment.user?.memberNumber),
+      vehiclePlate: payment.vehicle?.plateNumber ?? 'Unassigned',
+      vehicleId: payment.vehicle?.id ?? undefined,
+      route: payment.vehicle?.route?.name ?? 'Primary Route',
+      amount: roundCurrency(decimalToNumber(payment.totalAmount)),
+      method: 'M-PESA',
+      status: payment.status,
+      time: payment.paymentDate?.toISOString() ?? new Date().toISOString()
+    }));
+
+    const routeSummaryMap = new Map<
+      string,
+      { route: string; amount: number; trips: number; vehicles: Set<string> }
+    >();
+    todaysPayments.forEach((payment) => {
+      const routeName = payment.vehicle?.route?.name ?? 'Primary Route';
+      const entry = routeSummaryMap.get(routeName) ?? {
+        route: routeName,
+        amount: 0,
+        trips: 0,
+        vehicles: new Set<string>()
+      };
+      entry.amount += decimalToNumber(payment.totalAmount);
+      entry.trips += 1;
+      if (payment.vehicle?.id) {
+        entry.vehicles.add(payment.vehicle.id);
+      }
+      routeSummaryMap.set(routeName, entry);
+    });
+
+    const routeSummary = Array.from(routeSummaryMap.values()).map((entry) => ({
+      route: entry.route,
+      amount: roundCurrency(entry.amount),
+      trips: entry.trips,
+      vehicles: entry.vehicles.size
+    }));
+
+    const trend: { date: string; collections: number; expenditures: number }[] = [];
+    for (let i = 0; i < 7; i += 1) {
+      const bucketStart = startOfDay(new Date(trendStart));
+      bucketStart.setDate(bucketStart.getDate() + i);
+      const bucketEnd = endOfDay(new Date(bucketStart));
+      const collections = paymentsWindow
+        .filter((payment) => payment.paymentDate >= bucketStart && payment.paymentDate <= bucketEnd)
+        .reduce((sum, payment) => sum + decimalToNumber(payment.totalAmount), 0);
+      const exp = expensesList
+        .filter((expense) => expense.date >= bucketStart && expense.date <= bucketEnd)
+        .reduce((sum, expense) => sum + decimalToNumber(expense.amount), 0);
+      trend.push({
+        date: bucketStart.toISOString().split('T')[0],
+        collections: roundCurrency(collections),
+        expenditures: roundCurrency(exp)
+      });
+    }
+
+    return res.json({
+      date: dayStart.toISOString(),
+      totals,
+      trend,
+      expectations,
+      routeSummary,
+      recentRemittances
+    });
+  } catch (error) {
+    console.error('Failed to load finance summary', error);
+    return res.status(500).json({ message: 'Failed to load finance summary' });
+  }
+});
+
+router.get('/transactions', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const dateParam = firstQueryValue(req.query.date);
+    const rangeParam = firstQueryValue(req.query.range);
+    const startDateParam = firstQueryValue(req.query.startDate);
+    const endDateParam = firstQueryValue(req.query.endDate);
+    const categoryParam = firstQueryValue(req.query.category);
+    const methodParam = firstQueryValue(req.query.method);
+    const statusParam = firstQueryValue(req.query.status);
+    const limitParam = firstQueryValue(req.query.limit);
+
+    const targetDate = parseDateInput(dateParam);
+    const { startDate, endDate } = resolveRange(targetDate, rangeParam, startDateParam, endDateParam);
+    const requestedLimit = limitParam ? Number.parseInt(limitParam, 10) : Number.NaN;
+    const limit = clampNumber(Number.isFinite(requestedLimit) ? requestedLimit : 50, 1, 200);
+
+    const where: Prisma.PaymentWhereInput = {
+      paymentDate: { gte: startDate, lte: endDate },
+      status: PaymentStatus.COMPLETED
+    };
+
+    if (statusParam && statusParam.toLowerCase() !== 'all') {
+      const normalized = statusParam.toUpperCase() as keyof typeof PaymentStatus;
+      if (PaymentStatus[normalized]) {
+        where.status = PaymentStatus[normalized];
+      }
+    }
+
+    if (categoryParam && categoryParam.toLowerCase() !== 'all') {
+      const normalized = categoryParam.toUpperCase() as keyof typeof PaymentCategory;
+      if (PaymentCategory[normalized]) {
+        where.allocations = { some: { category: PaymentCategory[normalized] } };
+      }
+    }
+
+    if (methodParam && methodParam.toLowerCase() !== 'all') {
+      const normalized = methodParam.toLowerCase();
+      if (normalized === 'cash') {
+        // Currently no offline cash records exist, so return an empty list.
+        return res.json({ transactions: [] });
+      }
+    }
+
+    const payments = (await prisma.payment.findMany({
+      where,
+      include: paymentWithAllocationsInclude,
+      orderBy: { paymentDate: 'desc' },
+      take: limit
+    })) as PaymentWithAllocations[];
+
+    const transactions = payments.map((payment) => {
+      const allocationMap: Record<PaymentCategory, number> = {
+        [PaymentCategory.OPERATIONS]: 0,
+        [PaymentCategory.INSURANCE]: 0,
+        [PaymentCategory.LOAN_REPAYMENT]: 0,
+        [PaymentCategory.SAVINGS]: 0
+      };
+
+      payment.allocations.forEach((allocation) => {
+        allocationMap[allocation.category] = roundCurrency(decimalToNumber(allocation.amount));
+      });
+
+      return {
+        id: payment.id,
+        date: payment.paymentDate?.toISOString() ?? new Date().toISOString(),
+        member: formatUserName(payment.user ?? undefined),
+        memberNumber: formatMemberNumber(payment.user?.memberNumber),
+        vehicle: payment.vehicle?.plateNumber ?? 'Unassigned',
+        vehicleId: payment.vehicle?.id ?? undefined,
+        route: payment.vehicle?.route?.name ?? 'Primary Route',
+        category:
+          payment.allocations[0]?.category ??
+          (payment.allocations.length > 1 ? 'MULTI_CATEGORY' : 'FULL_REMITTANCE'),
+        method: 'M-PESA',
+        amount: roundCurrency(decimalToNumber(payment.totalAmount)),
+        status: payment.status,
+        allocation: {
+          operations: allocationMap[PaymentCategory.OPERATIONS],
+          insurance: allocationMap[PaymentCategory.INSURANCE],
+          loan: allocationMap[PaymentCategory.LOAN_REPAYMENT],
+          savings: allocationMap[PaymentCategory.SAVINGS]
+        }
+      };
+    });
+
+    return res.json({ transactions });
+  } catch (error) {
+    console.error('Failed to load finance transactions', error);
+    return res.status(500).json({ message: 'Failed to load finance transactions' });
+  }
+});
+
+router.get('/payments/audit', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const dateParam = firstQueryValue(req.query.date);
+    const limitParam = firstQueryValue(req.query.limit);
+    const targetDate = parseDateInput(dateParam);
+    const dayStart = startOfDay(targetDate);
+    const dayEnd = endOfDay(targetDate);
+    const requestedLimit = limitParam ? Number.parseInt(limitParam, 10) : Number.NaN;
+    const limit = clampNumber(Number.isFinite(requestedLimit) ? requestedLimit : 10, 1, 50);
+
+    const payments = await prisma.payment.findMany({
+      where: {
+        paymentDate: { gte: dayStart, lte: dayEnd }
+      },
+      include: {
+        user: { select: userSelect }
+      },
+      orderBy: { paymentDate: 'desc' },
+      take: limit
+    });
+
+    const entries = payments.map((payment) => ({
+      id: payment.id,
+      action: payment.mpesaReference ? 'Initiated STK Push' : 'Recorded Cash Payment',
+      amount: roundCurrency(decimalToNumber(payment.totalAmount)),
+      member: formatUserName(payment.user ?? undefined),
+      time: payment.paymentDate?.toISOString() ?? new Date().toISOString(),
+      by: req.user?.email ?? 'Treasurer'
+    }));
+
+    return res.json(entries);
+  } catch (error) {
+    console.error('Failed to load finance audit log', error);
+    return res.status(500).json({ message: 'Failed to load finance audit log' });
   }
 });
 
