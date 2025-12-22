@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -50,6 +50,21 @@ interface ExpenseTrackingProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<ExpenseTrackingLayoutProps>;
+  currentPage?: string;
+}
+
+interface ExpenseTrackingLayoutProps {
+  children: ReactNode;
+  user: {
+    id?: string;
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -108,7 +123,13 @@ const downloadCsv = (filename: string, rows: string[][]) => {
   URL.revokeObjectURL(url);
 };
 
-export function ExpenseTracking({ user, onNavigate, onLogout }: ExpenseTrackingProps) {
+export function ExpenseTracking({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = StaffLayout,
+  currentPage = 'staff/expensetracking'
+}: ExpenseTrackingProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<'all' | string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | string>('all');
@@ -303,35 +324,35 @@ export function ExpenseTracking({ user, onNavigate, onLogout }: ExpenseTrackingP
 
   if (loading) {
     return (
-      <StaffLayout user={user} currentPage="staff/expensetracking" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <div className="flex items-center justify-center py-24">
           <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
         </div>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   if (error) {
     return (
-      <StaffLayout user={user} currentPage="staff/expensetracking" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <Card className="max-w-xl mx-auto mt-24">
           <CardHeader>
             <CardTitle>Unable to load expenses</CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => onNavigate('staff/dashboard')}>
+            <Button variant="outline" onClick={() => onNavigate('app/dashboard')}>
               Back to Dashboard
             </Button>
             <Button onClick={loadExpenses}>Retry</Button>
           </CardContent>
         </Card>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   return (
-    <StaffLayout user={user} currentPage="staff/expensetracking" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -594,6 +615,6 @@ export function ExpenseTracking({ user, onNavigate, onLogout }: ExpenseTrackingP
           </CardContent>
         </Card>
       </div>
-    </StaffLayout>
+    </LayoutComponent>
   );
 }

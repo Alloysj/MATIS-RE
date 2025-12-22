@@ -2,6 +2,7 @@ import { Router } from 'express';
 import axios from 'axios';
 import { Prisma, PaymentStatus, PaymentCategory, TransactionType, LoanStatus } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requireAnyPermission, requireOwnership, requirePermission } from '../middleware/rbac';
 import prisma from '../prismaClient';
 
 const router = Router();
@@ -456,17 +457,17 @@ function extractCallbackItem(items: Array<{ Name: string; Value?: unknown }> | u
 }
 
 
-router.get('/insurance', async (_req, res) => {
+router.get('/insurance', authenticate, requirePermission('INSURANCE:VIEW'), async (_req, res) => {
   const policies = await prisma.insurancePolicy.findMany();
   res.json(policies);
 });
 
-router.get('/loans', async (_req, res) => {
+router.get('/loans', authenticate, requirePermission('LOANS:VIEW'), async (_req, res) => {
   const loans = await prisma.loan.findMany();
   res.json(loans);
 });
 
-router.get('/payments', authenticate, async (req: AuthRequest, res) => {
+router.get('/payments', authenticate, requirePermission('FINANCE:VIEW'), async (req: AuthRequest, res) => {
   try {
     const searchValue = firstQueryValue(req.query.search)?.trim();
     const limitParam = firstQueryValue(req.query.limit);
@@ -560,17 +561,21 @@ router.get('/payments', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/payments/:payment_id', authenticate, async (req, res) => {
+router.get(
+  '/payments/:payment_id',
+  authenticate,
+  requireOwnership({ resourceType: 'payment', paramIdField: 'payment_id', allowPermissions: ['FINANCE:VIEW'] }),
+  async (req, res) => {
   const payment = await prisma.payment.findUnique({ where: { id: req.params.payment_id } });
   if (!payment) return res.status(404).json({ message: 'Not found' });
   res.json(payment);
 });
 
-router.get('/userFinance', authenticate, async (_req: AuthRequest, res) => {
+router.get('/userFinance', authenticate, requirePermission('FINANCE:VIEW'), async (_req: AuthRequest, res) => {
   res.json({ eligible: true });
 });
 
-router.post('/applyLoan', authenticate, async (req: AuthRequest, res) => {
+router.post('/applyLoan', authenticate, requirePermission('LOANS:APPLY'), async (req: AuthRequest, res) => {
   try {
     const { guarantorIds, ...rawLoan } = req.body ?? {};
     const applicantId = req.user!.id;
@@ -658,23 +663,23 @@ router.post('/applyLoan', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.post('/approveLoan', async (req, res) => {
+router.post('/approveLoan', authenticate, requirePermission('LOANS:APPROVE'), async (req, res) => {
   const { loanId } = req.body;
   const loan = await prisma.loan.update({ where: { id: loanId }, data: { status: 'APPROVED' } });
   res.json(loan);
 });
 
-router.get('/pendingLoans', authenticate, async (req: AuthRequest, res) => {
+router.get('/pendingLoans', authenticate, requirePermission('LOANS:VIEW'), async (req: AuthRequest, res) => {
   const loans = await prisma.loan.findMany({ where: { status: 'PENDING', applicantId: req.user!.id } });
   res.json(loans);
 });
 
-router.get('/allPendingLoans', async (_req, res) => {
+router.get('/allPendingLoans', authenticate, requirePermission('LOANS:VIEW'), async (_req, res) => {
   const loans = await prisma.loan.findMany({ where: { status: 'PENDING' } });
   res.json(loans);
 });
 
-router.get('/loans/total', authenticate, async (req: AuthRequest, res) => {
+router.get('/loans/total', authenticate, requirePermission('LOANS:VIEW'), async (req: AuthRequest, res) => {
   const loans = await prisma.loan.aggregate({
     _sum: { amount: true },
     where: { applicantId: req.user!.id, status: { not: 'REPAID' } }
@@ -682,7 +687,11 @@ router.get('/loans/total', authenticate, async (req: AuthRequest, res) => {
   res.json({ total: loans._sum.amount || 0 });
 });
 
-router.get('/savings/total', authenticate, async (req: AuthRequest, res) => {
+router.get(
+  '/savings/total',
+  authenticate,
+  requireAnyPermission(['FINANCE:VIEW', 'FINANCE:VIEW_SELF']),
+  async (req: AuthRequest, res) => {
   const savings = await prisma.savingsAccount.aggregate({
     _sum: { balance: true },
     where: { userId: req.user!.id }
@@ -690,7 +699,7 @@ router.get('/savings/total', authenticate, async (req: AuthRequest, res) => {
   res.json({ total: savings._sum?.balance || 0 });
 });
 
-router.get('/payment/latest', authenticate, async (req: AuthRequest, res) => {
+router.get('/payment/latest', authenticate, requirePermission('FINANCE:VIEW'), async (req: AuthRequest, res) => {
   const payment = await prisma.payment.findFirst({
     where: { userId: req.user!.id },
     orderBy: { paymentDate: 'desc' }
@@ -698,13 +707,13 @@ router.get('/payment/latest', authenticate, async (req: AuthRequest, res) => {
   res.json(payment);
 });
 
-router.post('/payments/shareholder', authenticate, async (req: AuthRequest, res) => {
+router.post('/payments/shareholder', authenticate, requirePermission('FINANCE:COLLECT'), async (req: AuthRequest, res) => {
   const payment = await prisma.capitalPayment.create({ data: { ...req.body, userId: req.user!.id } });
   res.status(201).json(payment);
 });
 
 
-router.post('/processPayment', authenticate, async (req: AuthRequest, res) => {
+router.post('/processPayment', authenticate, requirePermission('FINANCE:COLLECT'), async (req: AuthRequest, res) => {
   try {
     const { phone, amount, vehicleId } = req.body ?? {};
     const userId = req.user?.id;
@@ -771,7 +780,7 @@ router.post('/processPayment', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.post('/payments/offline', authenticate, async (req: AuthRequest, res) => {
+router.post('/payments/offline', authenticate, requirePermission('FINANCE:COLLECT'), async (req: AuthRequest, res) => {
   try {
     const { userId, vehicleId, amount } = req.body ?? {};
     if (!userId) {
@@ -910,7 +919,7 @@ router.post('/mpesaCallback', async (req, res) => {
   }
 });
 
-router.get('/summary/daily', authenticate, async (req: AuthRequest, res) => {
+router.get('/summary/daily', authenticate, requirePermission('FINANCE:VIEW'), async (req: AuthRequest, res) => {
   try {
     const dateParam = firstQueryValue(req.query.date);
     const targetDate = parseDateInput(dateParam);
@@ -1073,7 +1082,7 @@ router.get('/summary/daily', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/transactions', authenticate, async (req: AuthRequest, res) => {
+router.get('/transactions', authenticate, requirePermission('FINANCE:VIEW'), async (req: AuthRequest, res) => {
   try {
     const dateParam = firstQueryValue(req.query.date);
     const rangeParam = firstQueryValue(req.query.range);
@@ -1165,7 +1174,7 @@ router.get('/transactions', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/payments/audit', authenticate, async (req: AuthRequest, res) => {
+router.get('/payments/audit', authenticate, requirePermission('FINANCE:VIEW'), async (req: AuthRequest, res) => {
   try {
     const dateParam = firstQueryValue(req.query.date);
     const limitParam = firstQueryValue(req.query.limit);
@@ -1203,7 +1212,12 @@ router.get('/payments/audit', authenticate, async (req: AuthRequest, res) => {
 });
 
 
-router.get('/dashboard/:userId/savings-trend', authenticate, async (req: AuthRequest, res) => {
+router.get(
+  '/dashboard/:userId/savings-trend',
+  authenticate,
+  requireAnyPermission(['FINANCE:VIEW', 'FINANCE:VIEW_SELF']),
+  requireOwnership({ resourceType: 'user', paramIdField: 'userId', allowPermissions: ['FINANCE:VIEW'] }),
+  async (req: AuthRequest, res) => {
   const { userId } = req.params;
   if (req.user?.id !== userId) {
     return res.status(403).json({ message: 'Forbidden' });
@@ -1236,7 +1250,12 @@ router.get('/dashboard/:userId/savings-trend', authenticate, async (req: AuthReq
   return res.json({ months });
 });
 
-router.get('/dashboard/:userId/loan-trend', authenticate, async (req: AuthRequest, res) => {
+router.get(
+  '/dashboard/:userId/loan-trend',
+  authenticate,
+  requireAnyPermission(['FINANCE:VIEW', 'FINANCE:VIEW_SELF', 'LOANS:VIEW']),
+  requireOwnership({ resourceType: 'user', paramIdField: 'userId', allowPermissions: ['FINANCE:VIEW', 'LOANS:VIEW'] }),
+  async (req: AuthRequest, res) => {
   const { userId } = req.params;
   if (req.user?.id !== userId) {
     return res.status(403).json({ message: 'Forbidden' });
@@ -1281,7 +1300,12 @@ router.get('/dashboard/:userId/loan-trend', authenticate, async (req: AuthReques
   return res.json({ months });
 });
 
-router.get('/dashboard/:userId/allocation-latest', authenticate, async (req: AuthRequest, res) => {
+router.get(
+  '/dashboard/:userId/allocation-latest',
+  authenticate,
+  requireAnyPermission(['FINANCE:VIEW', 'FINANCE:VIEW_SELF']),
+  requireOwnership({ resourceType: 'user', paramIdField: 'userId', allowPermissions: ['FINANCE:VIEW'] }),
+  async (req: AuthRequest, res) => {
   const { userId } = req.params;
   if (req.user?.id !== userId) {
     return res.status(403).json({ message: 'Forbidden' });
@@ -1314,7 +1338,12 @@ router.get('/dashboard/:userId/allocation-latest', authenticate, async (req: Aut
   });
 });
 
-router.get('/dashboard/:userId/recent-transactions', authenticate, async (req: AuthRequest, res) => {
+router.get(
+  '/dashboard/:userId/recent-transactions',
+  authenticate,
+  requireAnyPermission(['FINANCE:VIEW', 'FINANCE:VIEW_SELF']),
+  requireOwnership({ resourceType: 'user', paramIdField: 'userId', allowPermissions: ['FINANCE:VIEW'] }),
+  async (req: AuthRequest, res) => {
   const { userId } = req.params;
   if (req.user?.id !== userId) {
     return res.status(403).json({ message: 'Forbidden' });
@@ -1356,7 +1385,11 @@ router.get('/dashboard/:userId/recent-transactions', authenticate, async (req: A
   return res.json({ transactions: formatted });
 });
 
-router.get('/paymentStatus/:checkoutRequestId', authenticate, async (req: AuthRequest, res) => {
+router.get(
+  '/paymentStatus/:checkoutRequestId',
+  authenticate,
+  requirePermission('FINANCE:COLLECT'),
+  async (req: AuthRequest, res) => {
   const { checkoutRequestId } = req.params;
   if (!checkoutRequestId) {
     return res.status(400).json({ message: 'checkoutRequestId is required' });

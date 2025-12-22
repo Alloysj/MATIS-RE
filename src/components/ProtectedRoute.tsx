@@ -1,9 +1,12 @@
 import { ReactNode } from 'react';
+import { Navigate } from 'react-router-dom';
 import { RouteProtectionService, User } from '../services/routeProtection';
 import { Card, CardContent } from './ui/card';
 import { Alert, AlertDescription } from './ui/alert';
 import { Button } from './ui/button';
-import { Shield, AlertTriangle, Lock, Home } from 'lucide-react';
+import { Shield, AlertTriangle, Lock, Home, Loader2 } from 'lucide-react';
+import { useAccess } from '../context/AccessContext';
+import { NotAuthorized } from './NotAuthorized';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -20,7 +23,36 @@ export function ProtectedRoute({
   onNavigate, 
   fallbackComponent 
 }: ProtectedRouteProps) {
+  const access = useAccess();
+  const userType = String(access.userType ?? '').toUpperCase();
+  const isUserSurface = userType === 'USER' || userType === 'VEHICLE_OWNER';
+  const isStaffSurface = userType === 'ADMIN' || userType === 'STAFF';
+  const isAppRoute = routePath.startsWith('app/');
+  const isUsersRoute = routePath.startsWith('users/');
   const authResult = RouteProtectionService.isAuthorized(user, routePath);
+
+  if (access.loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
+      </div>
+    );
+  }
+
+  if (access.isAuthenticated) {
+    if (isAppRoute && isUserSurface) {
+      return <Navigate to="/users/home" replace />;
+    }
+    if (isUsersRoute && isStaffSurface) {
+      return <Navigate to="/app" replace />;
+    }
+    if (isUsersRoute && isUserSurface) {
+      if (authResult.reason === 'Capital payment required') {
+        return <Navigate to="/users/welcome" replace />;
+      }
+      return <>{children}</>;
+    }
+  }
 
   // If authorized, render the children
   if (authResult.authorized) {
@@ -32,7 +64,11 @@ export function ProtectedRoute({
     return <>{fallbackComponent}</>;
   }
 
-  // Default unauthorized access component
+  if (access.isAuthenticated) {
+    return <NotAuthorized onNavigate={onNavigate} />;
+  }
+
+  // Default unauthenticated access component
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
       <Card className="w-full max-w-md backdrop-blur-xl bg-white/10 border-white/20 shadow-2xl">
@@ -46,7 +82,7 @@ export function ProtectedRoute({
           </div>
           
           <h2 className="text-2xl font-bold text-white mb-4">
-            {!user ? 'Authentication Required' : 'Access Denied'}
+            {!access.isAuthenticated ? 'Authentication Required' : 'Access Denied'}
           </h2>
           
           <p className="text-white/70 mb-6">
@@ -56,9 +92,9 @@ export function ProtectedRoute({
           <Alert className="bg-red-500/10 border-red-500/30 text-red-200 mb-6">
             <AlertTriangle className="w-4 h-4" />
             <AlertDescription className="text-sm">
-              {!user 
+              {!access.isAuthenticated
                 ? 'Please log in to access this page.'
-                : user.role === 'Vehicle Owner' && !user.hasCompletedCapitalPayment
+                : user?.hasCompletedCapitalPayment === false
                   ? 'Complete your capital payment to access this feature.'
                   : 'Contact your administrator if you believe you should have access to this page.'
               }
@@ -66,14 +102,14 @@ export function ProtectedRoute({
           </Alert>
 
           <div className="space-y-3">
-            {!user ? (
+            {!access.isAuthenticated ? (
               <Button
                 onClick={() => onNavigate('login')}
                 className="w-full bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-slate-900 hover:opacity-90"
               >
                 Go to Login
               </Button>
-            ) : user.role === 'Vehicle Owner' && !user.hasCompletedCapitalPayment ? (
+            ) : user?.hasCompletedCapitalPayment === false ? (
               <Button
                 onClick={() => onNavigate('users/welcome')}
                 className="w-full bg-gradient-to-r from-[var(--neon-yellow)] to-[var(--neon-orange)] text-slate-900 hover:opacity-90"
@@ -82,7 +118,7 @@ export function ProtectedRoute({
               </Button>
             ) : (
               <Button
-                onClick={() => onNavigate(authResult.redirectTo || RouteProtectionService.getDefaultRouteForRole(user.role))}
+                onClick={() => onNavigate(authResult.redirectTo || RouteProtectionService.getDefaultRouteForRole(user?.role ?? ''))}
                 className="w-full bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-slate-900 hover:opacity-90"
               >
                 Go to Dashboard
@@ -103,7 +139,7 @@ export function ProtectedRoute({
             <div className="mt-6 pt-6 border-t border-white/20">
               <p className="text-xs text-white/50">
                 Logged in as: <span className="text-white/70">{user.name}</span><br />
-                Role: <span className="text-white/70">{user.role}</span>
+                Role: <span className="text-white/70">{user.role ?? 'Member'}</span>
               </p>
             </div>
           )}

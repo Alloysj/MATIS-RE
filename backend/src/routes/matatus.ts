@@ -1,15 +1,24 @@
 import { Router } from 'express';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requireAnyPermission, requireOwnership, requirePermission } from '../middleware/rbac';
 import prisma from '../prismaClient';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
+const requireVehiclesRead = requirePermission('VEHICLES:READ');
+const requireVehiclesWrite = requirePermission('VEHICLES:WRITE');
+const requireVehiclesApprove = requirePermission('VEHICLES:APPROVE');
+const requireVehiclesAssign = requirePermission('VEHICLES:ASSIGN_DRIVER');
+const requireRoutesWrite = requirePermission('VEHICLES:ROUTES_WRITE');
+const requireVehiclesReadSelf = requireAnyPermission(['VEHICLES:READ', 'VEHICLES:READ_SELF']);
+const requireVehiclesWriteSelf = requireAnyPermission(['VEHICLES:WRITE', 'VEHICLES:WRITE_SELF']);
+
+router.get('/', authenticate, requireVehiclesRead, async (_req, res) => {
   const matatus = await prisma.vehicle.findMany({ include: { owner: true, driver: true } });
   res.json(matatus);
 });
 
-router.get('/drivers', async (_req, res) => {
+router.get('/drivers', authenticate, requireVehiclesRead, async (_req, res) => {
   const drivers = await prisma.user.findMany({
     where: { role: { name: { equals: 'driver', mode: 'insensitive' } } }
   });
@@ -17,7 +26,7 @@ router.get('/drivers', async (_req, res) => {
 });
 
 // Drivers by occupation = "Driver" (case-insensitive)
-router.get('/availableDrivers', async (_req, res) => {
+router.get('/availableDrivers', authenticate, requireVehiclesReadSelf, async (_req, res) => {
   const users = await prisma.user.findMany({
     where: { occupation: { equals: 'Driver', mode: 'insensitive' } },
     select: { id: true, firstName: true, lastName: true, phone: true }
@@ -30,24 +39,24 @@ router.get('/availableDrivers', async (_req, res) => {
   res.json(result);
 });
 
-router.get('/profile', authenticate, async (req: AuthRequest, res) => {
+router.get('/profile', authenticate, requireVehiclesReadSelf, async (req: AuthRequest, res) => {
   const owner = await prisma.user.findUnique({ where: { id: req.user!.id } });
   res.json(owner);
 });
 
-router.get('/userMatatus', authenticate, async (req: AuthRequest, res) => {
+router.get('/userMatatus', authenticate, requireVehiclesReadSelf, async (req: AuthRequest, res) => {
   const vehicles = await prisma.vehicle.findMany({ where: { ownerId: req.user!.id } });
   res.json(vehicles);
 });
 
-router.get('/dashboard-info', authenticate, async (req: AuthRequest, res) => {
+router.get('/dashboard-info', authenticate, requireVehiclesReadSelf, async (req: AuthRequest, res) => {
   const owner = await prisma.user.findUnique({ where: { id: req.user!.id } });
   const vehicles = await prisma.vehicle.findMany({ where: { ownerId: req.user!.id } });
   res.json({ owner, vehicles });
 });
 
 // Lightweight vehicle summaries for the logged-in owner
-router.get('/userVehicles/summary', authenticate, async (req: AuthRequest, res) => {
+router.get('/userVehicles/summary', authenticate, requireVehiclesReadSelf, async (req: AuthRequest, res) => {
   const vehicles = await prisma.vehicle.findMany({
     where: { ownerId: req.user!.id },
     select: { id: true, plateNumber: true }
@@ -71,7 +80,7 @@ router.get('/userVehicles/summary', authenticate, async (req: AuthRequest, res) 
 });
 
 // Aggregated vehicle cards data for dashboard
-router.get('/dashboard-cards', authenticate, async (req: AuthRequest, res) => {
+router.get('/dashboard-cards', authenticate, requireVehiclesReadSelf, async (req: AuthRequest, res) => {
   const vehicles = await prisma.vehicle.findMany({
     where: { ownerId: req.user!.id },
     select: {
@@ -121,22 +130,27 @@ router.get('/dashboard-cards', authenticate, async (req: AuthRequest, res) => {
   res.json(results);
 });
 
-router.get('/userMatatus/:userId', async (req, res) => {
+router.get(
+  '/userMatatus/:userId',
+  authenticate,
+  requireVehiclesReadSelf,
+  requireOwnership({ resourceType: 'user', paramIdField: 'userId', allowPermissions: ['VEHICLES:READ'] }),
+  async (req, res) => {
   const vehicles = await prisma.vehicle.findMany({ where: { ownerId: req.params.userId } });
   res.json(vehicles);
 });
 
-router.get('/allPendingLoans', async (_req, res) => {
+router.get('/allPendingLoans', authenticate, requirePermission('LOANS:VIEW'), async (_req, res) => {
   const loans = await prisma.loan.findMany({ where: { status: 'PENDING' }, include: { vehicle: true } });
   res.json(loans);
 });
 
-router.post('/addRoute', async (req, res) => {
+router.post('/addRoute', authenticate, requireRoutesWrite, async (req, res) => {
   const route = await prisma.route.create({ data: req.body });
   res.status(201).json(route);
 });
 
-router.get('/routes', async (_req, res) => {
+router.get('/routes', authenticate, requireVehiclesReadSelf, async (_req, res) => {
   const routes = await prisma.route.findMany({
     select: {
       id: true,
@@ -151,53 +165,53 @@ router.get('/routes', async (_req, res) => {
   res.json(routes);
 });
 
-router.get('/export', async (_req, res) => {
+router.get('/export', authenticate, requireVehiclesRead, async (_req, res) => {
   const vehicles = await prisma.vehicle.findMany();
   res.json(vehicles);
 });
 
-router.put('/profile/update', authenticate, async (req: AuthRequest, res) => {
+router.put('/profile/update', authenticate, requireVehiclesWriteSelf, async (req: AuthRequest, res) => {
   const user = await prisma.user.update({ where: { id: req.user!.id }, data: req.body });
   res.json(user);
 });
 
-router.post('/register', authenticate, async (req: AuthRequest, res) => {
+router.post('/register', authenticate, requireVehiclesWriteSelf, async (req: AuthRequest, res) => {
   const vehicle = await prisma.vehicle.create({ data: { ...req.body, ownerId: req.user!.id } });
   res.status(201).json(vehicle);
 });
 
-router.delete('/deleteRoute/:routeId', async (req, res) => {
+router.delete('/deleteRoute/:routeId', authenticate, requireRoutesWrite, async (req, res) => {
   await prisma.route.delete({ where: { id: req.params.routeId } });
   res.status(204).end();
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', authenticate, requireVehiclesRead, async (req, res) => {
   const vehicle = await prisma.vehicle.findUnique({ where: { id: req.params.id } });
   if (!vehicle) return res.status(404).json({ message: 'Not found' });
   res.json(vehicle);
 });
 
-router.post('/:id/update', async (req, res) => {
+router.post('/:id/update', authenticate, requireVehiclesWrite, async (req, res) => {
   const vehicle = await prisma.vehicle.update({ where: { id: req.params.id }, data: req.body });
   res.json(vehicle);
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticate, requireVehiclesWrite, async (req, res) => {
   await prisma.vehicle.delete({ where: { id: req.params.id } });
   res.status(204).end();
 });
 
-router.post('/:id/approve', async (req, res) => {
+router.post('/:id/approve', authenticate, requireVehiclesApprove, async (req, res) => {
   const vehicle = await prisma.vehicle.update({ where: { id: req.params.id }, data: { status: 'ACTIVE' } });
   res.json(vehicle);
 });
 
-router.post('/:id/resetStatus', async (req, res) => {
+router.post('/:id/resetStatus', authenticate, requireVehiclesApprove, async (req, res) => {
   const vehicle = await prisma.vehicle.update({ where: { id: req.params.id }, data: { status: 'INACTIVE' } });
   res.json(vehicle);
 });
 
-router.post('/:id/assignDriver', async (req, res) => {
+router.post('/:id/assignDriver', authenticate, requireVehiclesAssign, async (req, res) => {
   const { driverId } = req.body as { driverId?: string };
   const vehicleId = req.params.id;
 

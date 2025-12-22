@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -33,6 +33,16 @@ import {
 
 interface ApproveUsersProps {
   user: { name: string; role: string; phone: string } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<ApproveUsersLayoutProps>;
+  currentPage?: string;
+}
+
+interface ApproveUsersLayoutProps {
+  children: ReactNode;
+  user: { name: string; role: string; phone: string } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -78,7 +88,13 @@ const getVehicleStatusBadge = (status: string) => {
 const formatCurrency = (value: number | null | undefined) =>
   value != null ? `KSh ${value.toLocaleString('en-KE')}` : 'KSh 0';
 
-export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) {
+export function ApproveUsers({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/users/approve'
+}: ApproveUsersProps) {
   const [users, setUsers] = useState<AdminUserSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -219,16 +235,16 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
 
   if (loading) {
     return (
-      <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="Approve Users">
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <div className="flex items-center justify-center h-[60vh] text-gray-500">
           Loading users...
         </div>
-      </AdminLayout>
+      </LayoutComponent>
     );
   }
 
   return (
-    <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="Approve Users">
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Filters */}
         <Card>
@@ -545,7 +561,7 @@ export function ApproveUsers({ user, onNavigate, onLogout }: ApproveUsersProps) 
           </DialogContent>
         </Dialog>
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }
 

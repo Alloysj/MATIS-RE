@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
@@ -66,6 +66,7 @@ import {
   submitFinancePayment
 } from '../../services/staff';
 import { processPayment } from '../../services/finance';
+import { usePermission } from '../../context/AccessContext';
 
 const emptySummary: FinanceDailySummaryResponse = {
   date: new Date().toISOString(),
@@ -96,9 +97,30 @@ interface TreasurerDashboardProps {
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<TreasurerLayoutProps>;
+  currentPage?: string;
 }
 
-export function TreasurerDashboard({ user, onNavigate, onLogout }: TreasurerDashboardProps) {
+interface TreasurerLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+}
+
+export function TreasurerDashboard({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = StaffLayout,
+  currentPage = 'staff/treasurer'
+}: TreasurerDashboardProps) {
+  const canCollectFinance = usePermission('FINANCE:COLLECT');
   const [dailySummary, setDailySummary] = useState<FinanceDailySummaryResponse>(emptySummary);
   const [recentRemittances, setRecentRemittances] = useState<FinanceRecentRemittance[]>([]);
   const [memberResults, setMemberResults] = useState<FinanceMemberSuggestion[]>([]);
@@ -423,9 +445,9 @@ export function TreasurerDashboard({ user, onNavigate, onLogout }: TreasurerDash
   };
 
   return (
-    <StaffLayout
+    <LayoutComponent
       user={user}
-      currentPage="staff/treasurer"
+      currentPage={currentPage}
       onNavigate={onNavigate}
       onLogout={onLogout}
     >
@@ -658,7 +680,8 @@ export function TreasurerDashboard({ user, onNavigate, onLogout }: TreasurerDash
                     onClick={handleSubmitPayment}
                     className="w-full"
                     size="lg"
-                    disabled={paymentSubmitting}
+                    disabled={paymentSubmitting || !canCollectFinance}
+                    title={!canCollectFinance ? 'You do not have permission to collect payments.' : undefined}
                   >
                     {paymentSubmitting ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1179,6 +1202,6 @@ export function TreasurerDashboard({ user, onNavigate, onLogout }: TreasurerDash
         </TabsContent>
       </Tabs>
     </div>
-    </StaffLayout>
+    </LayoutComponent>
   );
 }

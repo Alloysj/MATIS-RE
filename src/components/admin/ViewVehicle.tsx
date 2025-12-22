@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   AdminVehicleSummary,
@@ -39,6 +39,20 @@ interface ViewVehicleProps {
   onNavigate: (page: string) => void;
   onLogout: () => void;
   vehicleId: string;
+  LayoutComponent?: ComponentType<ViewVehicleLayoutProps>;
+  currentPage?: string;
+}
+
+interface ViewVehicleLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
 }
 
 const vehicleStatusOptions: { value: VehicleStatusCode; label: string }[] = [
@@ -152,7 +166,14 @@ const getLoanBadgeClass = (status: LoanStatusCode) => {
   }
 };
 
-export function ViewVehicle({ user, onNavigate, onLogout, vehicleId }: ViewVehicleProps) {
+export function ViewVehicle({
+  user,
+  onNavigate,
+  onLogout,
+  vehicleId,
+  LayoutComponent = AdminLayout,
+  currentPage = 'app/vehicles'
+}: ViewVehicleProps) {
   const [vehicle, setVehicle] = useState<AdminVehicleSummary | null>(null);
   const [status, setStatus] = useState<VehicleStatusCode | null>(null);
   const [insuranceStatus, setInsuranceStatus] = useState<InsuranceStatusCode | null>(null);
@@ -616,10 +637,10 @@ export function ViewVehicle({ user, onNavigate, onLogout, vehicleId }: ViewVehic
   };
 
   return (
-    <AdminLayout user={user} currentPage="admin/fleet" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <Button variant="ghost" className="w-fit" onClick={() => onNavigate('admin/fleet')}>
+          <Button variant="ghost" className="w-fit" onClick={() => onNavigate('app/vehicles')}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Fleet
           </Button>
@@ -635,6 +656,6 @@ export function ViewVehicle({ user, onNavigate, onLogout, vehicleId }: ViewVehic
 
         {renderContent()}
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { ComponentType, ReactNode, useState, useMemo, useEffect, useCallback } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -58,6 +58,20 @@ interface FinancialReportsProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<FinancialReportsLayoutProps>;
+  currentPage?: string;
+}
+
+interface FinancialReportsLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -462,7 +476,13 @@ const dividendPaymentsData = generateDateRange(60).map((date, index) => {
   };
 }).filter(Boolean);
 
-export function FinancialReports({ user, onNavigate, onLogout }: FinancialReportsProps) {
+export function FinancialReports({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/reports/financials'
+}: FinancialReportsProps) {
   const [dateRange, setDateRange] = useState('last-month');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
@@ -844,9 +864,9 @@ export function FinancialReports({ user, onNavigate, onLogout }: FinancialReport
   };
 
   return (
-    <AdminLayout 
+    <LayoutComponent 
       user={user} 
-      currentPage="admin/reports/financials" 
+      currentPage={currentPage} 
       onNavigate={onNavigate} 
       onLogout={onLogout}
     >
@@ -1862,6 +1882,6 @@ export function FinancialReports({ user, onNavigate, onLogout }: FinancialReport
           </TabsContent>
         </Tabs>
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

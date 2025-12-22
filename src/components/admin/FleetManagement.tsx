@@ -43,6 +43,7 @@ import {
   AdminRoute
 } from '../../services/admin';
 import { AvailableDriver, getAvailableDrivers } from '../../services/matatus';
+import { useAnyPermission, usePermission } from '../../context/AccessContext';
 
 interface FleetLayoutProps {
   children: ReactNode;
@@ -191,10 +192,14 @@ export function FleetManagement({
   onNavigate,
   onLogout,
   LayoutComponent = AdminLayout,
-  currentPage = 'admin/fleet',
-  basePath = 'admin/fleet',
-  routesPath = 'admin/fleet/routes'
+  currentPage = 'app/vehicles',
+  basePath = 'app/vehicles',
+  routesPath = 'app/vehicles/routes'
 }: FleetManagementProps) {
+  const canWriteVehicle = useAnyPermission(['VEHICLES:WRITE', 'VEHICLES:WRITE_SELF']);
+  const canAssignDriver = usePermission('VEHICLES:ASSIGN_DRIVER');
+  const canInsuranceWrite = usePermission('INSURANCE:WRITE');
+  const canRoutesWrite = usePermission('VEHICLES:ROUTES_WRITE');
   const [vehicles, setVehicles] = useState<AdminVehicleSummary[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState<boolean>(true);
   const [vehiclesError, setVehiclesError] = useState<string | null>(null);
@@ -402,7 +407,7 @@ export function FleetManagement({
       toast.error('Owner information is not available for this vehicle.');
       return;
     }
-    onNavigate('admin/users/user_profile/' + ownerId);
+    onNavigate('app/members/profiles/' + ownerId);
   };
 
   const handleDeleteVehicle = async (vehicle: AdminVehicleSummary) => {
@@ -710,26 +715,34 @@ export function FleetManagement({
                         <ExternalLink className="h-4 w-4 mr-2" />
                         View Details
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleOpenVehicleForm('edit', vehicle)}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Vehicle
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAssignDriver(vehicle)}>
-                        <UserPlus className="h-4 w-4 mr-2" />
-                        {vehicle.driver ? 'Change Driver' : 'Assign Driver'}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleOpenInsuranceDialog(vehicle)}>
-                        <Shield className="h-4 w-4 mr-2" />
-                        Record Insurance Payment
-                      </DropdownMenuItem>
+                      {canWriteVehicle && (
+                        <DropdownMenuItem onClick={() => handleOpenVehicleForm('edit', vehicle)}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit Vehicle
+                        </DropdownMenuItem>
+                      )}
+                      {canAssignDriver && (
+                        <DropdownMenuItem onClick={() => handleAssignDriver(vehicle)}>
+                          <UserPlus className="h-4 w-4 mr-2" />
+                          {vehicle.driver ? 'Change Driver' : 'Assign Driver'}
+                        </DropdownMenuItem>
+                      )}
+                      {canInsuranceWrite && (
+                        <DropdownMenuItem onClick={() => handleOpenInsuranceDialog(vehicle)}>
+                          <Shield className="h-4 w-4 mr-2" />
+                          Record Insurance Payment
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onClick={() => handleViewOwner(vehicle.owner?.id ?? null)}>
                         <Eye className="h-4 w-4 mr-2" />
                         View Owner
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDeleteVehicle(vehicle)} className="text-red-600">
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete Vehicle
-                      </DropdownMenuItem>
+                      {canWriteVehicle && (
+                        <DropdownMenuItem onClick={() => handleDeleteVehicle(vehicle)} className="text-red-600">
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete Vehicle
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -760,14 +773,18 @@ export function FleetManagement({
             <p className="text-gray-600 mt-1">Manage vehicle registrations, assignments, and compliance</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={() => onNavigate(routesPath)}>
-              <MapPin className="h-4 w-4 mr-2" />
-              Manage Routes
-            </Button>
-            <Button onClick={() => handleOpenVehicleForm('create')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Vehicle
-            </Button>
+            {canRoutesWrite && (
+              <Button variant="outline" onClick={() => onNavigate(routesPath)}>
+                <MapPin className="h-4 w-4 mr-2" />
+                Manage Routes
+              </Button>
+            )}
+            {canWriteVehicle && (
+              <Button onClick={() => handleOpenVehicleForm('create')}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Vehicle
+              </Button>
+            )}
           </div>
         </div>
 

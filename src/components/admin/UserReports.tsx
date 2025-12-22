@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { ComponentType, ReactNode, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -37,6 +37,20 @@ interface UserReportsProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<UserReportsLayoutProps>;
+  currentPage?: string;
+}
+
+interface UserReportsLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -112,7 +126,13 @@ const userReportsData = [
   }
 ];
 
-export function UserReports({ user, onNavigate, onLogout }: UserReportsProps) {
+export function UserReports({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/reports/users'
+}: UserReportsProps) {
   const [filters, setFilters] = useState({
     role: 'all',
     status: 'all',
@@ -173,12 +193,7 @@ export function UserReports({ user, onNavigate, onLogout }: UserReportsProps) {
   };
 
   return (
-    <AdminLayout 
-      user={user} 
-      currentPage="admin/reports/users" 
-      onNavigate={onNavigate} 
-      onLogout={onLogout}
-    >
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center">
@@ -455,6 +470,6 @@ export function UserReports({ user, onNavigate, onLogout }: UserReportsProps) {
           </CardContent>
         </Card>
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

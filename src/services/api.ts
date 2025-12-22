@@ -2,6 +2,7 @@ export const API_BASE = (import.meta as any).env?.VITE_API_BASE || 'http://local
 
 const AUTH_TOKEN_KEY = 'authToken';
 const UNAUTHORIZED_EVENT = 'matis:unauthorized';
+const AUTH_EVENT = 'matis:auth';
 
 let unauthorizedNotified = false;
 
@@ -26,6 +27,11 @@ const hasAuthHeader = (input: RequestInfo | URL, init?: RequestInit): boolean =>
 const dispatchUnauthorizedEvent = () => {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+};
+
+const dispatchAuthEvent = () => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(AUTH_EVENT));
 };
 
 export function notifyUnauthorized() {
@@ -76,11 +82,13 @@ export function getAuthToken(): string | null {
 export function setAuthToken(token: string) {
   localStorage.setItem(AUTH_TOKEN_KEY, token);
   unauthorizedNotified = false;
+  dispatchAuthEvent();
 }
 
 export function clearAuthToken() {
   removeStoredToken();
   unauthorizedNotified = false;
+  dispatchAuthEvent();
 }
 
 export function authHeaders(): Record<string, string> {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -32,6 +32,7 @@ import {
   LoanStatusCode,
   LoanTypeCode
 } from '../../services/admin';
+import { usePermission } from '../../context/AccessContext';
 
 interface LoanApplicationsProps {
   user: {
@@ -39,6 +40,20 @@ interface LoanApplicationsProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<LoanLayoutProps>;
+  currentPage?: string;
+}
+
+interface LoanLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -112,7 +127,14 @@ const matchesSearch = (loan: AdminLoanSummary, term: string) => {
   return candidateValues.some(value => value?.toLowerCase().includes(normalized));
 };
 
-export function LoanApplications({ user, onNavigate, onLogout }: LoanApplicationsProps) {
+export function LoanApplications({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/loans'
+}: LoanApplicationsProps) {
+  const canApproveLoan = usePermission('LOANS:APPROVE');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<LoanTypeCode>('NORMAL');
   const [loans, setLoans] = useState<AdminLoanSummary[]>([]);
@@ -169,7 +191,7 @@ export function LoanApplications({ user, onNavigate, onLogout }: LoanApplication
   };
 
   const handleViewApplicant = (applicantId: string) => {
-    onNavigate(`admin/users/user_profile/${applicantId}`);
+    onNavigate(`app/members/profiles/${applicantId}`);
   };
 
   const filteredLoans = useMemo(
@@ -220,14 +242,14 @@ export function LoanApplications({ user, onNavigate, onLogout }: LoanApplication
   );
 
   return (
-    <AdminLayout user={user} currentPage="admin/loans" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Loan Applications</h1>
             <p className="text-gray-600 mt-1">Review and manage pending loan applications.</p>
           </div>
-          <Button onClick={() => onNavigate('admin/financials')} variant="outline">
+          <Button onClick={() => onNavigate('app/insurance')} variant="outline">
             <DollarSign className="h-4 w-4 mr-2" />
             Financial Overview
           </Button>
@@ -382,20 +404,24 @@ export function LoanApplications({ user, onNavigate, onLogout }: LoanApplication
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  disabled={updatingLoanId === loan.id}
-                                  onClick={() => handleApproveLoan(loan)}
-                                >
-                                  <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
-                                  Approve
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  disabled={updatingLoanId === loan.id}
-                                  onClick={() => handleRejectLoan(loan)}
-                                >
-                                  <XCircle className="h-4 w-4 mr-2 text-red-600" />
-                                  Reject
-                                </DropdownMenuItem>
+                                {canApproveLoan && (
+                                  <DropdownMenuItem
+                                    disabled={updatingLoanId === loan.id}
+                                    onClick={() => handleApproveLoan(loan)}
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
+                                    Approve
+                                  </DropdownMenuItem>
+                                )}
+                                {canApproveLoan && (
+                                  <DropdownMenuItem
+                                    disabled={updatingLoanId === loan.id}
+                                    onClick={() => handleRejectLoan(loan)}
+                                  >
+                                    <XCircle className="h-4 w-4 mr-2 text-red-600" />
+                                    Reject
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem onClick={() => handleViewApplicant(loan.applicantId)}>
                                   <User className="h-4 w-4 mr-2" />
                                   View Applicant
@@ -480,20 +506,24 @@ export function LoanApplications({ user, onNavigate, onLogout }: LoanApplication
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem
-                                  disabled={updatingLoanId === loan.id}
-                                  onClick={() => handleApproveLoan(loan)}
-                                >
-                                  <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
-                                  Approve
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  disabled={updatingLoanId === loan.id}
-                                  onClick={() => handleRejectLoan(loan)}
-                                >
-                                  <XCircle className="h-4 w-4 mr-2 text-red-600" />
-                                  Reject
-                                </DropdownMenuItem>
+                                {canApproveLoan && (
+                                  <DropdownMenuItem
+                                    disabled={updatingLoanId === loan.id}
+                                    onClick={() => handleApproveLoan(loan)}
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
+                                    Approve
+                                  </DropdownMenuItem>
+                                )}
+                                {canApproveLoan && (
+                                  <DropdownMenuItem
+                                    disabled={updatingLoanId === loan.id}
+                                    onClick={() => handleRejectLoan(loan)}
+                                  >
+                                    <XCircle className="h-4 w-4 mr-2 text-red-600" />
+                                    Reject
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem onClick={() => handleViewApplicant(loan.applicantId)}>
                                   <User className="h-4 w-4 mr-2" />
                                   View Applicant
@@ -509,6 +539,6 @@ export function LoanApplications({ user, onNavigate, onLogout }: LoanApplication
           </Card>
         )}
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

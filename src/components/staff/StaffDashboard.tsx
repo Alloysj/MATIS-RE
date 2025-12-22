@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -31,6 +31,20 @@ interface StaffDashboardProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<StaffDashboardLayoutProps>;
+  currentPage?: string;
+}
+
+interface StaffDashboardLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -114,7 +128,13 @@ const getActivityBadgeVariant = (type: ActivityItem['type']) => {
   }
 };
 
-export function StaffDashboard({ user, onNavigate, onLogout }: StaffDashboardProps) {
+export function StaffDashboard({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = StaffLayout,
+  currentPage = 'staff/dashboard'
+}: StaffDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState<StaffDetails | null>(null);
@@ -338,28 +358,28 @@ export function StaffDashboard({ user, onNavigate, onLogout }: StaffDashboardPro
         title: 'Add Expense',
         description: 'Record new SACCO expense',
         icon: Receipt,
-        action: () => onNavigate('staff/expensetracking'),
+        action: () => onNavigate('app/expenses'),
         color: 'from-[var(--neon-orange)] to-[var(--neon-yellow)]'
       },
       {
         title: 'Pending Loans',
         description: 'Review loan applications',
         icon: CreditCard,
-        action: () => onNavigate('staff/loanmanagement'),
+        action: () => onNavigate('app/loans/manage'),
         color: 'from-[var(--neon-turquoise)] to-[var(--electric-blue)]'
       },
       {
         title: 'Salary Advance',
         description: 'Apply for salary advance',
         icon: DollarSign,
-        action: () => onNavigate('staff/salary'),
+        action: () => onNavigate('app/payroll'),
         color: 'from-[var(--neon-purple)] to-[var(--hot-pink)]'
       },
       {
         title: 'Financial Reports',
         description: 'Generate financial summaries',
         icon: TrendingUp,
-        action: () => onNavigate('staff/reports'),
+        action: () => onNavigate('app/reports'),
         color: 'from-[var(--lime-green)] to-[var(--neon-turquoise)]'
       }
     ],
@@ -379,17 +399,17 @@ export function StaffDashboard({ user, onNavigate, onLogout }: StaffDashboardPro
 
   if (loading) {
     return (
-      <StaffLayout user={user} currentPage="staff/dashboard" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <div className="flex items-center justify-center py-24">
           <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
         </div>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   if (error) {
     return (
-      <StaffLayout user={user} currentPage="staff/dashboard" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <Card className="max-w-xl mx-auto mt-24">
           <CardHeader>
             <CardTitle>Unable to load dashboard</CardTitle>
@@ -399,12 +419,12 @@ export function StaffDashboard({ user, onNavigate, onLogout }: StaffDashboardPro
             <Button onClick={() => loadData()}>Retry</Button>
           </CardContent>
         </Card>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   return (
-    <StaffLayout user={user} currentPage="staff/dashboard" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Welcome Header */}
         <div className="bg-gradient-to-r from-[var(--neon-turquoise)]/10 to-[var(--neon-yellow)]/10 rounded-xl p-6 border border-[var(--neon-turquoise)]/20">
@@ -423,7 +443,7 @@ export function StaffDashboard({ user, onNavigate, onLogout }: StaffDashboardPro
               </div>
             </div>
             <Button
-              onClick={() => onNavigate('staff/update')}
+              onClick={() => onNavigate('app/staff/profile')}
               className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black hover:opacity-90"
             >
               <User className="w-4 h-4 mr-2" />
@@ -644,6 +664,6 @@ export function StaffDashboard({ user, onNavigate, onLogout }: StaffDashboardPro
           </CardContent>
         </Card>
       </div>
-    </StaffLayout>
+    </LayoutComponent>
   );
 }

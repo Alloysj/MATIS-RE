@@ -1,7 +1,9 @@
+import { canAccessMenuItem, menuRegistry } from '../navigation/menuRegistry';
+
 export interface User {
   id?: string;
   name: string;
-  role: 'Vehicle Owner' | 'Admin' | 'Staff' | 'Chairperson' | 'Treasurer';
+  role?: string;
   phone: string;
   permissions?: string[];
   hasCompletedCapitalPayment?: boolean;
@@ -9,38 +11,22 @@ export interface User {
 
 export interface RouteConfig {
   path: string;
-  allowedRoles?: string[];
-  requiredPermissions?: string[];
-  requiresCapitalPayment?: boolean;
   isPublic?: boolean;
+  requiresCapitalPayment?: boolean;
+  requiredAnyPermissions?: string[];
+  requiredAllPermissions?: string[];
 }
 
-const ROLE_PERMISSION_FALLBACK: Record<User['role'], string[]> = {
-  'Vehicle Owner': ['view_own_profile', 'manage_own_vehicles', 'apply_loans', 'view_own_financials'],
-  Admin: [
-    'full_access',
-    'manage_members',
-    'approve_members',
-    'manage_roles',
-    'manage_fleet',
-    'manage_financials',
-    'manage_loans',
-    'manage_routes',
-    'manage_savings',
-    'manage_board_matters',
-    'manage_board',
-    'manage_staff',
-    'manage_expenses',
-    'manage_salary',
-    'view_reports',
-    'view_all_reports'
-  ],
-  Staff: ['view_own_profile', 'manage_loans', 'manage_expenses', 'manage_salary', 'manage_fleet', 'view_reports'],
-  Chairperson: ['view_own_profile', 'manage_board', 'manage_board_matters', 'manage_loans', 'manage_fleet', 'view_reports'],
-  Treasurer: ['view_own_profile', 'manage_financials', 'manage_expenses', 'manage_salary', 'manage_loans', 'view_reports']
+const anyOf = (permissions: string[] | undefined, required: string[] | undefined) => {
+  if (!required || required.length === 0) return true;
+  return required.some((permission) => permissions?.includes(permission));
 };
 
-// Define route configurations with their access requirements
+const allOf = (permissions: string[] | undefined, required: string[] | undefined) => {
+  if (!required || required.length === 0) return true;
+  return required.every((permission) => permissions?.includes(permission));
+};
+
 export const routeConfigs: Record<string, RouteConfig> = {
   // Public routes
   'home': { path: 'home', isPublic: true },
@@ -53,182 +39,155 @@ export const routeConfigs: Record<string, RouteConfig> = {
   'forgot-password': { path: 'forgot-password', isPublic: true },
   'not-found': { path: 'not-found', isPublic: true },
 
-  // Vehicle Owner routes
-  'users/welcome': { 
-    path: 'users/welcome', 
-    allowedRoles: ['Vehicle Owner'],
-    requiresCapitalPayment: false
+  // Shared app routes
+  'app': { path: 'app' },
+  'app/members': {
+    path: 'app/members',
+    requiredAnyPermissions: ['MEMBERS:READ', 'MEMBERS:READ_SELF', 'MEMBERS:CREATE', 'MEMBERS:APPROVE']
   },
-  'users/home': { 
-    path: 'users/home', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['view_own_profile'],
-    requiresCapitalPayment: true
+  'app/vehicles': {
+    path: 'app/vehicles',
+    requiredAnyPermissions: ['VEHICLES:READ', 'VEHICLES:READ_SELF']
   },
-  'users/profile': { 
-    path: 'users/profile', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['view_own_profile'],
-    requiresCapitalPayment: true
+  'app/remittances': {
+    path: 'app/remittances',
+    requiredAnyPermissions: ['FINANCE:COLLECT', 'FINANCE:VIEW']
   },
-  'users/vehicles': { 
-    path: 'users/vehicles', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['manage_own_vehicles'],
-    requiresCapitalPayment: true
+  'app/insurance': {
+    path: 'app/insurance',
+    requiredAnyPermissions: ['INSURANCE:VIEW', 'INSURANCE:WRITE']
   },
-  'users/apply-loan': { 
-    path: 'users/apply-loan', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['apply_loans'],
-    requiresCapitalPayment: true
+  'app/loans': {
+    path: 'app/loans',
+    requiredAnyPermissions: ['LOANS:VIEW', 'LOANS:APPLY', 'LOANS:APPROVE']
   },
-  'users/financial-status': { 
-    path: 'users/financial-status', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['view_own_financials'],
-    requiresCapitalPayment: true
+  'app/dashboard': {
+    path: 'app/dashboard',
+    requiredAnyPermissions: ['FINANCE:VIEW', 'VEHICLES:READ', 'LOANS:VIEW']
   },
-  'users/addVehicle': { 
-    path: 'users/addVehicle', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['manage_own_vehicles'],
-    requiresCapitalPayment: true
+  'app/admin/dashboard': {
+    path: 'app/admin/dashboard',
+    requiredAnyPermissions: ['MEMBERS:READ', 'VEHICLES:READ', 'FINANCE:VIEW']
   },
-  'users/exit': { 
-    path: 'users/exit', 
-    allowedRoles: ['Vehicle Owner'],
-    requiredPermissions: ['view_own_profile'],
-    requiresCapitalPayment: true
+  'app/members/approve': {
+    path: 'app/members/approve',
+    requiredAnyPermissions: ['MEMBERS:APPROVE']
   },
-
-  // Admin routes
-  'admin/dashboard': { 
-    path: 'admin/dashboard', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['full_access']
+  'app/members/roles': {
+    path: 'app/members/roles',
+    requiredAnyPermissions: ['ADMIN:RBAC']
   },
-  'admin/users': { 
-    path: 'admin/users', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_members']
+  'app/members/create': {
+    path: 'app/members/create',
+    requiredAnyPermissions: ['MEMBERS:CREATE']
   },
-  'admin/users/approve': { 
-    path: 'admin/users/approve', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['approve_members']
+  'app/members/profiles': {
+    path: 'app/members/profiles',
+    requiredAnyPermissions: ['MEMBERS:READ']
   },
-  'admin/users/roles': { 
-    path: 'admin/users/roles', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_roles']
+  'app/members/profiles/:userId': {
+    path: 'app/members/profiles/:userId',
+    requiredAnyPermissions: ['MEMBERS:READ']
   },
-  'admin/users/create': { 
-    path: 'admin/users/create', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_members']
+  'app/vehicles/:vehicleId': {
+    path: 'app/vehicles/:vehicleId',
+    requiredAnyPermissions: ['VEHICLES:READ']
   },
-  'admin/users/profiles': { 
-    path: 'admin/users/profiles', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_members']
+  'app/vehicles/routes': {
+    path: 'app/vehicles/routes',
+    requiredAnyPermissions: ['VEHICLES:ROUTES_WRITE', 'VEHICLES:READ']
   },
-  'admin/fleet': { 
-    path: 'admin/fleet', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_fleet']
+  'app/vehicles/matatus': {
+    path: 'app/vehicles/matatus',
+    requiredAnyPermissions: ['VEHICLES:READ']
   },
-  'admin/financials': { 
-    path: 'admin/financials', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_financials']
+  'app/payroll': {
+    path: 'app/payroll',
+    requiredAnyPermissions: ['PAYROLL:READ']
   },
-  'admin/wages': {
-    path: 'admin/wages',
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_salary']
+  'app/payroll/admin': {
+    path: 'app/payroll/admin',
+    requiredAnyPermissions: ['PAYROLL:READ']
   },
-  'admin/loans': { 
-    path: 'admin/loans', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_loans']
+  'app/expenses': {
+    path: 'app/expenses',
+    requiredAnyPermissions: ['EXPENSES:READ']
   },
-  'admin/fleet/routes': { 
-    path: 'admin/fleet/routes', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['manage_routes']
+  'app/loans/manage': {
+    path: 'app/loans/manage',
+    requiredAnyPermissions: ['LOANS:VIEW', 'LOANS:APPLY']
   },
-  'admin/reports/users': { 
-    path: 'admin/reports/users', 
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['view_all_reports']
+  'app/reports': {
+    path: 'app/reports',
+    requiredAnyPermissions: ['FINANCE:VIEW']
   },
-  'admin/reports/financials': {
-    path: 'admin/reports/financials',
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['view_all_reports']
+  'app/reports/users': {
+    path: 'app/reports/users',
+    requiredAnyPermissions: ['MEMBERS:READ']
   },
-  'admin/reports/fleet': {
-    path: 'admin/reports/fleet',
-    allowedRoles: ['Admin'],
-    requiredPermissions: ['view_all_reports']
+  'app/reports/financials': {
+    path: 'app/reports/financials',
+    requiredAnyPermissions: ['FINANCE:VIEW']
+  },
+  'app/reports/fleet': {
+    path: 'app/reports/fleet',
+    requiredAnyPermissions: ['VEHICLES:READ']
+  },
+  'app/staff/profile': {
+    path: 'app/staff/profile',
+    requiredAnyPermissions: ['STAFF:READ', 'MEMBERS:READ_SELF']
+  },
+  'app/admin/staff-profiles': {
+    path: 'app/admin/staff-profiles',
+    requiredAnyPermissions: ['ADMIN:RBAC']
   },
 
-  // Staff routes
-  'staff/dashboard': { 
-    path: 'staff/dashboard', 
-    allowedRoles: ['Staff', 'Chairperson', 'Treasurer'],
-    requiredPermissions: ['view_reports']
-  },
-  'staff/update': { 
-    path: 'staff/update', 
-    allowedRoles: ['Staff', 'Chairperson', 'Treasurer'],
-    requiredPermissions: ['view_own_profile']
-  },
-  'staff/salary': { 
-    path: 'staff/salary', 
-    allowedRoles: ['Staff', 'Treasurer'],
-    requiredPermissions: ['manage_salary']
-  },
-  'staff/treasurer': { 
-    path: 'staff/treasurer', 
-    allowedRoles: ['Treasurer', 'Admin'],
-    requiredPermissions: ['manage_financials']
-  },
-  'staff/loanmanagement': { 
-    path: 'staff/loanmanagement', 
-    allowedRoles: ['Staff', 'Chairperson', 'Treasurer'],
-    requiredPermissions: ['manage_loans']
-  },
-  'staff/expensetracking': { 
-    path: 'staff/expensetracking', 
-    allowedRoles: ['Staff', 'Treasurer'],
-    requiredPermissions: ['manage_expenses']
-  },
-  'staff/matatumanagement': { 
-    path: 'staff/matatumanagement', 
-    allowedRoles: ['Staff', 'Chairperson'],
-    requiredPermissions: ['manage_fleet']
-  },
-  'staff/reports': { 
-    path: 'staff/reports', 
-    allowedRoles: ['Staff', 'Chairperson', 'Treasurer'],
-    requiredPermissions: ['view_reports']
-  }
+  // Vehicle owner routes
+  'users/welcome': { path: 'users/welcome', requiredAnyPermissions: ['MEMBERS:READ_SELF'] },
+  'users/home': { path: 'users/home', requiredAnyPermissions: ['MEMBERS:READ_SELF'], requiresCapitalPayment: true },
+  'users/profile': { path: 'users/profile', requiredAnyPermissions: ['MEMBERS:READ_SELF'], requiresCapitalPayment: true },
+  'users/vehicles': { path: 'users/vehicles', requiredAnyPermissions: ['VEHICLES:READ_SELF'], requiresCapitalPayment: true },
+  'users/apply-loan': { path: 'users/apply-loan', requiredAnyPermissions: ['LOANS:APPLY'], requiresCapitalPayment: true },
+  'users/financial-status': { path: 'users/financial-status', requiredAnyPermissions: ['FINANCE:VIEW_SELF'], requiresCapitalPayment: true },
+  'users/addVehicle': { path: 'users/addVehicle', requiredAnyPermissions: ['VEHICLES:WRITE_SELF'], requiresCapitalPayment: true },
+  'users/exit': { path: 'users/exit', requiredAnyPermissions: ['MEMBERS:READ_SELF'], requiresCapitalPayment: true },
+
+  // Legacy admin routes
+  'admin/dashboard': { path: 'admin/dashboard', requiredAnyPermissions: ['MEMBERS:READ', 'VEHICLES:READ', 'FINANCE:VIEW'] },
+  'admin/users': { path: 'admin/users', requiredAnyPermissions: ['MEMBERS:READ'] },
+  'admin/users/approve': { path: 'admin/users/approve', requiredAnyPermissions: ['MEMBERS:APPROVE'] },
+  'admin/users/roles': { path: 'admin/users/roles', requiredAnyPermissions: ['ADMIN:RBAC'] },
+  'admin/users/create': { path: 'admin/users/create', requiredAnyPermissions: ['MEMBERS:CREATE'] },
+  'admin/users/profiles': { path: 'admin/users/profiles', requiredAnyPermissions: ['MEMBERS:READ'] },
+  'admin/fleet': { path: 'admin/fleet', requiredAnyPermissions: ['VEHICLES:READ'] },
+  'admin/financials': { path: 'admin/financials', requiredAnyPermissions: ['FINANCE:VIEW'] },
+  'admin/wages': { path: 'admin/wages', requiredAnyPermissions: ['PAYROLL:READ'] },
+  'admin/loans': { path: 'admin/loans', requiredAnyPermissions: ['LOANS:VIEW'] },
+  'admin/fleet/routes': { path: 'admin/fleet/routes', requiredAnyPermissions: ['VEHICLES:ROUTES_WRITE', 'VEHICLES:READ'] },
+  'admin/reports/users': { path: 'admin/reports/users', requiredAnyPermissions: ['MEMBERS:READ'] },
+  'admin/reports/financials': { path: 'admin/reports/financials', requiredAnyPermissions: ['FINANCE:VIEW'] },
+  'admin/reports/fleet': { path: 'admin/reports/fleet', requiredAnyPermissions: ['VEHICLES:READ'] },
+  'admin/staff-profiles': { path: 'admin/staff-profiles', requiredAnyPermissions: ['ADMIN:RBAC'] },
+
+  // Legacy staff routes
+  'staff/dashboard': { path: 'staff/dashboard', requiredAnyPermissions: ['FINANCE:VIEW', 'VEHICLES:READ', 'LOANS:VIEW'] },
+  'staff/update': { path: 'staff/update', requiredAnyPermissions: ['MEMBERS:READ_SELF', 'STAFF:READ'] },
+  'staff/salary': { path: 'staff/salary', requiredAnyPermissions: ['PAYROLL:READ'] },
+  'staff/treasurer': { path: 'staff/treasurer', requiredAnyPermissions: ['FINANCE:COLLECT', 'FINANCE:VIEW'] },
+  'staff/loanmanagement': { path: 'staff/loanmanagement', requiredAnyPermissions: ['LOANS:VIEW', 'LOANS:APPLY'] },
+  'staff/expensetracking': { path: 'staff/expensetracking', requiredAnyPermissions: ['EXPENSES:READ'] },
+  'staff/matatumanagement': { path: 'staff/matatumanagement', requiredAnyPermissions: ['VEHICLES:READ'] },
+  'staff/reports': { path: 'staff/reports', requiredAnyPermissions: ['FINANCE:VIEW'] }
 };
 
 export class RouteProtectionService {
-  /**
-   * Check if a user is authorized to access a specific route
-   */
   static isAuthorized(user: User | null, routePath: string): {
     authorized: boolean;
     reason?: string;
     redirectTo?: string;
   } {
     const routeConfig = routeConfigs[routePath];
-    
-    // If route config not found, deny access
+
     if (!routeConfig) {
       return {
         authorized: false,
@@ -237,12 +196,10 @@ export class RouteProtectionService {
       };
     }
 
-    // Allow access to public routes
     if (routeConfig.isPublic) {
       return { authorized: true };
     }
 
-    // Require authentication for protected routes
     if (!user) {
       return {
         authorized: false,
@@ -251,17 +208,7 @@ export class RouteProtectionService {
       };
     }
 
-    // Check role authorization
-    if (routeConfig.allowedRoles && !routeConfig.allowedRoles.includes(user.role)) {
-      return {
-        authorized: false,
-        reason: `Access denied. Required roles: ${routeConfig.allowedRoles.join(', ')}`,
-        redirectTo: this.getDefaultRouteForRole(user.role)
-      };
-    }
-
-    // Check capital payment requirement for vehicle owners
-    if (routeConfig.requiresCapitalPayment && user.role === 'Vehicle Owner' && !user.hasCompletedCapitalPayment) {
+    if (routeConfig.requiresCapitalPayment && !user.hasCompletedCapitalPayment) {
       return {
         authorized: false,
         reason: 'Capital payment required',
@@ -269,106 +216,66 @@ export class RouteProtectionService {
       };
     }
 
-    // Check specific permissions
-    if (routeConfig.requiredPermissions) {
-      const userPermissions = this.getUserPermissions(user);
-      const hasRequiredPermissions = routeConfig.requiredPermissions.every(permission =>
-        userPermissions.includes(permission) || userPermissions.includes('full_access')
-      );
+    const userPermissions = this.getUserPermissions(user);
+    const hasAny = anyOf(userPermissions, routeConfig.requiredAnyPermissions);
+    const hasAll = allOf(userPermissions, routeConfig.requiredAllPermissions);
 
-      if (!hasRequiredPermissions) {
-        return {
-          authorized: false,
-          reason: `Insufficient permissions. Required: ${routeConfig.requiredPermissions.join(', ')}`,
-          redirectTo: this.getDefaultRouteForRole(user.role)
-        };
-      }
+    if (!hasAny || !hasAll) {
+      return {
+        authorized: false,
+        reason: 'Insufficient permissions.',
+        redirectTo: this.getDefaultRouteForRole(user.role ?? '')
+      };
     }
 
     return { authorized: true };
   }
 
-  /**
-   * Get user permissions based on their role
-   */
   private static getUserPermissions(user: User): string[] {
-    // If user has explicit permissions, use those
     if (user.permissions && user.permissions.length > 0) {
       return user.permissions;
     }
-
-    // Otherwise, fall back to predefined role permissions
-    const fallback = ROLE_PERMISSION_FALLBACK[user.role];
-    return fallback ? [...fallback] : [];
+    return [];
   }
 
-  /**
-   * Get the default route for a user's role
-   */
   static getDefaultRouteForRole(role: string): string {
-    switch (role) {
-      case 'Vehicle Owner':
-        return 'users/home';
-      case 'Admin':
-        return 'admin/dashboard';
-      case 'Staff':
-      case 'Chairperson':
-      case 'Treasurer':
-        return 'staff/dashboard';
-      default:
-        // Default unknown roles to Vehicle Owner dashboard
-        return 'users/home';
-    }
+    if (!role) return 'home';
+    return 'app/vehicles';
   }
 
-  /**
-   * Get all accessible routes for a user
-   */
   static getAccessibleRoutes(user: User | null): string[] {
-    return Object.keys(routeConfigs).filter(routePath => 
+    return Object.keys(routeConfigs).filter(routePath =>
       this.isAuthorized(user, routePath).authorized
     );
   }
 
-  /**
-   * Middleware function to protect navigation
-   */
   static protectNavigation(
-    user: User | null, 
-    targetRoute: string, 
+    user: User | null,
+    targetRoute: string,
     onUnauthorized?: (reason: string, redirectTo: string) => void
   ): boolean {
     const authResult = this.isAuthorized(user, targetRoute);
-    
+
     if (!authResult.authorized && onUnauthorized && authResult.redirectTo) {
       onUnauthorized(authResult.reason || 'Access denied', authResult.redirectTo);
       return false;
     }
-    
+
     return authResult.authorized;
   }
 
-  /**
-   * Check if user has specific permission
-   */
   static hasPermission(user: User | null, permission: string): boolean {
     if (!user) return false;
-    
+
     const userPermissions = this.getUserPermissions(user);
-    return userPermissions.includes(permission) || userPermissions.includes('full_access');
+    return userPermissions.includes(permission);
   }
 
-  /**
-   * Check if user has any of the specified roles
-   */
   static hasRole(user: User | null, roles: string[]): boolean {
     if (!user) return false;
-    return roles.includes(user.role);
+    return roles.includes(user.role ?? '');
   }
 
-  /**
-   * Get navigation menu items based on user permissions
-   */
   static getNavigationItems(user: User | null): Array<{
     label: string;
     route: string;
@@ -376,70 +283,29 @@ export class RouteProtectionService {
     children?: Array<{ label: string; route: string; }>;
   }> {
     if (!user) return [];
+    const permissions = this.getUserPermissions(user);
 
-    const items = [];
+    return menuRegistry
+      .map((section) => {
+        const children = section.items
+          .filter((item) => canAccessMenuItem(item, permissions))
+          .map((item) => ({ label: item.label, route: item.path }));
 
-    // Dashboard
-    const dashboardRoute = this.getDefaultRouteForRole(user.role);
-    if (this.isAuthorized(user, dashboardRoute).authorized) {
-      items.push({
-        label: 'Dashboard',
-        route: dashboardRoute,
-        icon: 'dashboard'
-      });
-    }
+        if (children.length === 0) {
+          return null;
+        }
 
-    // Role-specific navigation
-    if (user.role === 'Vehicle Owner') {
-      const vehicleOwnerItems = [
-        { label: 'Profile', route: 'users/profile' },
-        { label: 'My Vehicles', route: 'users/vehicles' },
-        { label: 'Apply for Loan', route: 'users/apply-loan' },
-        { label: 'Financial Status', route: 'users/financial-status' }
-      ].filter(item => this.isAuthorized(user, item.route).authorized);
-
-      if (vehicleOwnerItems.length > 0) {
-        items.push({
-          label: 'My Account',
+        return {
+          label: section.label ?? '',
           route: '',
-          children: vehicleOwnerItems
-        });
-      }
-    } else if (user.role === 'Admin') {
-      const adminItems = [
-        { label: 'User Management', route: 'admin/users' },
-        { label: 'Fleet Management', route: 'admin/fleet' },
-        { label: 'Financial Overview', route: 'admin/financials' },
-        { label: 'Treasury Module', route: 'staff/treasurer' },
-        { label: 'Loan Applications', route: 'admin/loans' },
-        { label: 'Reports', route: 'admin/reports/users' }
-      ].filter(item => this.isAuthorized(user, item.route).authorized);
-
-      if (adminItems.length > 0) {
-        items.push({
-          label: 'Administration',
-          route: '',
-          children: adminItems
-        });
-      }
-    } else if (['Staff', 'Chairperson', 'Treasurer'].includes(user.role)) {
-      const staffItems = [
-        { label: 'Finance Module', route: 'staff/treasurer' },
-        { label: 'Loan Management', route: 'staff/loanmanagement' },
-        { label: 'Expense Tracking', route: 'staff/expensetracking' },
-        { label: 'Matatu Management', route: 'staff/matatumanagement' },
-        { label: 'Reports', route: 'staff/reports' }
-      ].filter(item => this.isAuthorized(user, item.route).authorized);
-
-      if (staffItems.length > 0) {
-        items.push({
-          label: 'Operations',
-          route: '',
-          children: staffItems
-        });
-      }
-    }
-
-    return items;
+          children
+        };
+      })
+      .filter(Boolean) as Array<{
+        label: string;
+        route: string;
+        icon?: string;
+        children?: Array<{ label: string; route: string; }>;
+      }>;
   }
 }

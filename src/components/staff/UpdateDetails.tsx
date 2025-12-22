@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -26,6 +26,20 @@ interface UpdateDetailsProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<UpdateDetailsLayoutProps>;
+  currentPage?: string;
+}
+
+interface UpdateDetailsLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -66,7 +80,13 @@ const getErrorMessage = (error: unknown): string => {
 
 const toStringValue = (value: unknown) => (value == null ? '' : String(value));
 
-export function UpdateDetails({ user, onNavigate, onLogout }: UpdateDetailsProps) {
+export function UpdateDetails({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = StaffLayout,
+  currentPage = 'staff/update'
+}: UpdateDetailsProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<StaffProfileFormState>(initialFormState);
   const [originalData, setOriginalData] = useState<StaffProfileFormState>(initialFormState);
@@ -234,35 +254,35 @@ export function UpdateDetails({ user, onNavigate, onLogout }: UpdateDetailsProps
 
   if (loading) {
     return (
-      <StaffLayout user={user} currentPage="staff/update" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <div className="flex items-center justify-center py-24">
           <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
         </div>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   if (error) {
     return (
-      <StaffLayout user={user} currentPage="staff/update" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <Card className="max-w-xl mx-auto mt-24">
           <CardHeader>
             <CardTitle>Unable to load profile</CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => onNavigate('staff/dashboard')}>
+            <Button variant="outline" onClick={() => onNavigate('app/dashboard')}>
               Back to Dashboard
             </Button>
             <Button onClick={() => loadProfile()}>Retry</Button>
           </CardContent>
         </Card>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   return (
-    <StaffLayout user={user} currentPage="staff/update" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -351,6 +371,6 @@ export function UpdateDetails({ user, onNavigate, onLogout }: UpdateDetailsProps
           </CardContent>
         </Card>
       </div>
-    </StaffLayout>
+    </LayoutComponent>
   );
 }

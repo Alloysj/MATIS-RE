@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { RouteProtectionService, User } from '../services/routeProtection';
+import { useAccess } from '../context/AccessContext';
 
 /**
  * Custom hook for authentication and authorization
  */
 export function useAuth() {
+  const access = useAccess();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -61,7 +63,7 @@ export function useAuth() {
 
   // Authorization helpers
   const hasPermission = (permission: string): boolean => {
-    return RouteProtectionService.hasPermission(user, permission);
+    return access.hasPermission(permission);
   };
 
   const hasRole = (roles: string | string[]): boolean => {
@@ -82,7 +84,7 @@ export function useAuth() {
   };
 
   const isAuthenticated = (): boolean => {
-    return user !== null;
+    return access.isAuthenticated;
   };
 
   const isVehicleOwner = (): boolean => {
@@ -104,7 +106,7 @@ export function useAuth() {
   return {
     // State
     user,
-    loading,
+    loading: loading || access.loading,
     
     // Authentication actions
     login,

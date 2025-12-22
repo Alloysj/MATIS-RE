@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -31,6 +31,16 @@ import {
 
 interface CreateUserProps {
   user: { name: string; role: string; phone: string } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<CreateUserLayoutProps>;
+  currentPage?: string;
+}
+
+interface CreateUserLayoutProps {
+  children: ReactNode;
+  user: { name: string; role: string; phone: string } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -88,7 +98,13 @@ const toNumberOrNull = (value: string) => {
   return Number.isFinite(numeric) ? numeric : null;
 };
 
-export function CreateUser({ user, onNavigate, onLogout }: CreateUserProps) {
+export function CreateUser({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/users/create'
+}: CreateUserProps) {
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const [rolesLoading, setRolesLoading] = useState(false);
     const [formData, setFormData] = useState<CreateUserForm>({
@@ -277,7 +293,7 @@ export function CreateUser({ user, onNavigate, onLogout }: CreateUserProps) {
   const selectedRole = useMemo(() => roles.find(role => role.id === formData.roleId), [roles, formData.roleId]);
 
   return (
-    <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="Create User">
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -611,7 +627,7 @@ export function CreateUser({ user, onNavigate, onLogout }: CreateUserProps) {
           </div>
         </div>
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }
 

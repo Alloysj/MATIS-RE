@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -42,6 +42,21 @@ interface SalaryManagementProps {
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<SalaryManagementLayoutProps>;
+  currentPage?: string;
+}
+
+interface SalaryManagementLayoutProps {
+  children: ReactNode;
+  user: {
+    id?: string;
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
 }
 
 const toNumber = (value: unknown): number => {
@@ -66,7 +81,13 @@ const formatStatus = (status: string | null | undefined) => {
   return status.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-export function SalaryManagement({ user, onNavigate, onLogout }: SalaryManagementProps) {
+export function SalaryManagement({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = StaffLayout,
+  currentPage = 'staff/salary'
+}: SalaryManagementProps) {
   const [advanceDialogOpen, setAdvanceDialogOpen] = useState(false);
   const [advanceAmount, setAdvanceAmount] = useState('');
   const [advanceReason, setAdvanceReason] = useState('');
@@ -255,35 +276,35 @@ export function SalaryManagement({ user, onNavigate, onLogout }: SalaryManagemen
 
   if (loading) {
     return (
-      <StaffLayout user={user} currentPage="staff/salary" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <div className="flex items-center justify-center py-24">
           <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
         </div>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   if (error) {
     return (
-      <StaffLayout user={user} currentPage="staff/salary" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <Card className="max-w-xl mx-auto mt-24">
           <CardHeader>
             <CardTitle>Unable to load salary data</CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => onNavigate('staff/dashboard')}>
+            <Button variant="outline" onClick={() => onNavigate('app/dashboard')}>
               Back to Dashboard
             </Button>
             <Button onClick={loadData}>Retry</Button>
           </CardContent>
         </Card>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   return (
-    <StaffLayout user={user} currentPage="staff/salary" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -663,7 +684,7 @@ export function SalaryManagement({ user, onNavigate, onLogout }: SalaryManagemen
           </>
         )}
       </div>
-    </StaffLayout>
+    </LayoutComponent>
   );
 }
 

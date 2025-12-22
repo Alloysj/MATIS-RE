@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { useAnyPermission, usePermission } from '../../context/AccessContext';
 import { 
   Table, 
   TableBody, 
@@ -40,9 +41,35 @@ interface UsersManagementProps {
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<UsersLayoutProps>;
+  currentPage?: string;
 }
 
-export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementProps) {
+interface UsersLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+}
+
+export function UsersManagement({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'app/members'
+}: UsersManagementProps) {
+  const canCreateMember = usePermission('MEMBERS:CREATE');
+  const canApproveMember = usePermission('MEMBERS:APPROVE');
+  const canDeleteMember = usePermission('MEMBERS:DELETE');
+  const canManageRoles = usePermission('ADMIN:RBAC');
+  const canUpdateMember = usePermission('MEMBERS:UPDATE');
+  const canReadMembers = useAnyPermission(['MEMBERS:READ', 'MEMBERS:READ_SELF']);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'pending' | 'approved'>('pending');
   const [users, setUsers] = useState<AdminUserSummary[]>([]);
@@ -165,7 +192,7 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
   };
 
   const handleEditUser = (userId: string) => {
-    onNavigate(`admin/users/user_profile/${userId}`);
+    onNavigate(`app/members/profiles/${userId}`);
   };
 
   const handleDeleteUser = (userId: string) => {
@@ -184,10 +211,10 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
   // );
 
   return (
-    <AdminLayout 
-      user={user} 
-      currentPage="admin/users" 
-      onNavigate={onNavigate} 
+    <LayoutComponent
+      user={user}
+      currentPage={currentPage}
+      onNavigate={onNavigate}
       onLogout={onLogout}
     >
       <div className="space-y-6">
@@ -197,18 +224,21 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
             <h1 className="text-2xl font-bold text-gray-900">Users Management</h1>
             <p className="text-gray-600 mt-1">Manage user registrations and accounts</p>
           </div>
-          <Button 
-            onClick={() => onNavigate('admin/users/create')}
-            className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] hover:opacity-90"
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Add New User
-          </Button>
+          {canCreateMember && (
+            <Button 
+              onClick={() => onNavigate('app/members/create')}
+              className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] hover:opacity-90"
+            >
+              <Users className="h-4 w-4 mr-2" />
+              Add New User
+            </Button>
+          )}
         </div>
 
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onNavigate('admin/users/approve')}>
+          {canApproveMember && (
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onNavigate('app/members/approve')}>
             <CardContent className="p-6">
               <div className="flex items-center space-x-4">
                 <div className="h-12 w-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -221,8 +251,10 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
               </div>
             </CardContent>
           </Card>
+          )}
 
-          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onNavigate('admin/users/roles')}>
+          {canManageRoles && (
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onNavigate('app/members/roles')}>
             <CardContent className="p-6">
               <div className="flex items-center space-x-4">
                 <div className="h-12 w-12 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -235,8 +267,10 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
               </div>
             </CardContent>
           </Card>
+          )}
 
-          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onNavigate('admin/users/create')}>
+          {canCreateMember && (
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onNavigate('app/members/create')}>
             <CardContent className="p-6">
               <div className="flex items-center space-x-4">
                 <div className="h-12 w-12 bg-green-100 rounded-lg flex items-center justify-center">
@@ -249,8 +283,10 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
               </div>
             </CardContent>
           </Card>
+          )}
 
-          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onNavigate('admin/users/profiles')}>
+          {canReadMembers && (
+          <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => onNavigate('app/members/profiles')}>
             <CardContent className="p-6">
               <div className="flex items-center space-x-4">
                 <div className="h-12 w-12 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -263,6 +299,7 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
               </div>
             </CardContent>
           </Card>
+          )}
         </div>
 
         {/* Search and Tabs */}
@@ -366,18 +403,22 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleApproveUser(pendingUser.id)}>
-                                  <UserCheck className="h-4 w-4 mr-2" />
-                                  Approve
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleRejectUser(pendingUser.id)}
-                                  className="text-red-600"
-                                >
-                                  <UserX className="h-4 w-4 mr-2" />
-                                  Reject
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onNavigate('admin/users/approve')}>
+                                {canApproveMember && (
+                                  <DropdownMenuItem onClick={() => handleApproveUser(pendingUser.id)}>
+                                    <UserCheck className="h-4 w-4 mr-2" />
+                                    Approve
+                                  </DropdownMenuItem>
+                                )}
+                                {canApproveMember && (
+                                  <DropdownMenuItem
+                                    onClick={() => handleRejectUser(pendingUser.id)}
+                                    className="text-red-600"
+                                  >
+                                    <UserX className="h-4 w-4 mr-2" />
+                                    Reject
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => onNavigate('app/members/approve')}>
                                   <Edit className="h-4 w-4 mr-2" />
                                   View Details
                                 </DropdownMenuItem>
@@ -473,21 +514,27 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleEditUser(approvedUser.id)}>
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  Edit Profile
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onNavigate('admin/users/roles')}>
-                                  <UserCheck className="h-4 w-4 mr-2" />
-                                  Manage Roles
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleDeleteUser(approvedUser.id)}
-                                  className="text-red-600"
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  Delete User
-                                </DropdownMenuItem>
+                                {canUpdateMember && (
+                                  <DropdownMenuItem onClick={() => handleEditUser(approvedUser.id)}>
+                                    <Edit className="h-4 w-4 mr-2" />
+                                    Edit Profile
+                                  </DropdownMenuItem>
+                                )}
+                                {canManageRoles && (
+                                  <DropdownMenuItem onClick={() => onNavigate('app/members/roles')}>
+                                    <UserCheck className="h-4 w-4 mr-2" />
+                                    Manage Roles
+                                  </DropdownMenuItem>
+                                )}
+                                {canDeleteMember && (
+                                  <DropdownMenuItem
+                                    onClick={() => handleDeleteUser(approvedUser.id)}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Delete User
+                                  </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
@@ -504,6 +551,6 @@ export function UsersManagement({ user, onNavigate, onLogout }: UsersManagementP
           </Card>
         )}
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

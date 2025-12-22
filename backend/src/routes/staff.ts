@@ -1,8 +1,18 @@
 import { Router } from 'express';
 import { SalaryStatus, SalaryAdvanceStatus, ExpenseStatus } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requireOwnership, requirePermission } from '../middleware/rbac';
 import prisma from '../prismaClient';
 const router = Router();
+
+const requireStaffRead = requirePermission('STAFF:READ');
+const requireStaffWrite = requirePermission('STAFF:WRITE');
+const requirePayrollRead = requirePermission('PAYROLL:READ');
+const requirePayrollWrite = requirePermission('PAYROLL:WRITE');
+const requirePayrollApprove = requirePermission('PAYROLL:APPROVE');
+const requireExpensesRead = requirePermission('EXPENSES:READ');
+const requireExpensesWrite = requirePermission('EXPENSES:WRITE');
+const requireFinanceView = requirePermission('FINANCE:VIEW');
 
 const mapProfileRow = (row: any) => ({
   id: String(row.id),
@@ -32,7 +42,7 @@ const mapProfileRow = (row: any) => ({
 });
 
 // Return authenticated staff member's name and position
-router.get('/details', authenticate, async (req: AuthRequest, res) => {
+router.get('/details', authenticate, requireStaffRead, async (req: AuthRequest, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
     select: { firstName: true, lastName: true, profileCategory: true }
@@ -44,7 +54,7 @@ router.get('/details', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Save or update staff banking and identification details
-router.post('/details/modify', authenticate, async (req: AuthRequest, res) => {
+router.post('/details/modify', authenticate, requireStaffWrite, async (req: AuthRequest, res) => {
   const { bankName, accountNumber, kra, nhif, passportPhoto } = req.body;
   const existing = await prisma.staffSalary.findFirst({ where: { staffId: req.user!.id } });
   let record;
@@ -62,7 +72,7 @@ router.post('/details/modify', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Retrieve full staff profile for logged-in user
-router.get('/details/user', authenticate, async (req: AuthRequest, res) => {
+router.get('/details/user', authenticate, requireStaffRead, async (req: AuthRequest, res) => {
   const details = await prisma.staffSalary.findFirst({
     where: { staffId: req.user!.id },
     include: { staff: true }
@@ -71,7 +81,7 @@ router.get('/details/user', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Get assigned company position for logged-in staff
-router.get('/position', authenticate, async (req: AuthRequest, res) => {
+router.get('/position', authenticate, requireStaffRead, async (req: AuthRequest, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
     select: { profileCategory: true }
@@ -80,19 +90,19 @@ router.get('/position', authenticate, async (req: AuthRequest, res) => {
 });
 
 // View all salary advance requests (admin)
-router.get('/salary-advance-applications', async (_req, res) => {
+router.get('/salary-advance-applications', authenticate, requirePayrollRead, async (_req, res) => {
   const advances = await prisma.salaryAdvance.findMany();
   res.json(advances);
 });
 
 // Fetch profiles for all staff members (admin)
-router.get('/all-details', async (_req, res) => {
+router.get('/all-details', authenticate, requirePayrollRead, async (_req, res) => {
   const details = await prisma.staffSalary.findMany({ include: { staff: true } });
   res.json(details);
 });
 
 // Update existing staff profile details
-router.put('/details/update', authenticate, async (req: AuthRequest, res) => {
+router.put('/details/update', authenticate, requireStaffWrite, async (req: AuthRequest, res) => {
   const { bankName, accountNumber } = req.body;
   const result = await prisma.staffSalary.updateMany({
     where: { staffId: req.user!.id },
@@ -102,7 +112,7 @@ router.put('/details/update', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Fetch logged-in staff member's monthly salary
-router.get('/salary', authenticate, async (req: AuthRequest, res) => {
+router.get('/salary', authenticate, requirePayrollRead, async (req: AuthRequest, res) => {
   const salary = await prisma.staffSalary.findFirst({
     where: { staffId: req.user!.id },
     select: { basicSalary: true, netSalary: true }
@@ -111,7 +121,7 @@ router.get('/salary', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Submit an expense application / salary advance request
-router.post('/apply-advance', authenticate, async (req: AuthRequest, res) => {
+router.post('/apply-advance', authenticate, requirePayrollWrite, async (req: AuthRequest, res) => {
   const { amount, reason } = req.body;
   const advance = await prisma.salaryAdvance.create({
     data: { staffId: req.user!.id, amount, reason }
@@ -120,7 +130,7 @@ router.post('/apply-advance', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Retrieve expenses filed by the logged-in staff member
-router.post('/expenses', authenticate, async (req: AuthRequest, res) => {
+router.post('/expenses', authenticate, requireExpensesRead, async (req: AuthRequest, res) => {
   const expenses = await prisma.expense.findMany({
     where: { createdById: req.user!.id }
   });
@@ -128,13 +138,13 @@ router.post('/expenses', authenticate, async (req: AuthRequest, res) => {
 });
 
 // List salary and other office expenses (admin)
-router.get('/all-expenses', async (_req, res) => {
+router.get('/all-expenses', authenticate, requireExpensesRead, async (_req, res) => {
   const expenses = await prisma.expense.findMany();
   res.json(expenses);
 });
 
 // Verify whether the user has a pending salary advance in the current month
-router.get('/checkSalaryAdvance', authenticate, async (req: AuthRequest, res) => {
+router.get('/checkSalaryAdvance', authenticate, requirePayrollRead, async (req: AuthRequest, res) => {
   const start = new Date();
   start.setDate(1); start.setHours(0, 0, 0, 0);
   const end = new Date(start);
@@ -150,7 +160,7 @@ router.get('/checkSalaryAdvance', authenticate, async (req: AuthRequest, res) =>
 });
 
 // Record salary payments and generate a receipt (admin)
-router.post('/pay-salary', async (req, res) => {
+router.post('/pay-salary', authenticate, requirePayrollWrite, async (req, res) => {
   const { staffId, basicSalary, netSalary, ...rest } = req.body;
   const salary = await prisma.staffSalary.create({
     data: { staffId, basicSalary, netSalary, status: SalaryStatus.PAID, ...rest }
@@ -159,7 +169,11 @@ router.post('/pay-salary', async (req, res) => {
 });
 
 // Generate or retrieve monthly payslips after salary processing
-router.get('/payslips/:userId', async (req, res) => {
+router.get(
+  '/payslips/:userId',
+  authenticate,
+  requireOwnership({ resourceType: 'user', paramIdField: 'userId', allowPermissions: ['PAYROLL:READ'] }),
+  async (req, res) => {
   const slips = await prisma.staffSalary.findMany({
     where: { staffId: req.params.userId },
     orderBy: { payDate: 'desc' }
@@ -168,7 +182,7 @@ router.get('/payslips/:userId', async (req, res) => {
 });
 
 // Record daily wage payments for non-salaried workers
-router.post('/wages/pay', authenticate, async (req: AuthRequest, res) => {
+router.post('/wages/pay', authenticate, requirePayrollWrite, async (req: AuthRequest, res) => {
   const { description, amount, userId } = req.body;
   const wage = await prisma.expense.create({
     data: {
@@ -184,7 +198,7 @@ router.post('/wages/pay', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Log general office expenses (rent, utilities, etc.)
-router.post('/office-expenses', authenticate, async (req: AuthRequest, res) => {
+router.post('/office-expenses', authenticate, requireExpensesWrite, async (req: AuthRequest, res) => {
   const { category, description, amount, vendor } = req.body;
   const expense = await prisma.expense.create({
     data: {
@@ -199,7 +213,7 @@ router.post('/office-expenses', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Endpoint for admin to approve or decline salary-advance requests
-router.post('/advance/approve', authenticate, async (req: AuthRequest, res) => {
+router.post('/advance/approve', authenticate, requirePayrollApprove, async (req: AuthRequest, res) => {
   const { advanceId, status } = req.body;
   const advance = await prisma.salaryAdvance.update({
     where: { id: advanceId },
@@ -209,7 +223,7 @@ router.post('/advance/approve', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Staff view of approval status for a specific salary-advance request
-router.get('/advance/status', authenticate, async (req: AuthRequest, res) => {
+router.get('/advance/status', authenticate, requirePayrollRead, async (req: AuthRequest, res) => {
   const { requestId } = req.query;
   const advance = await prisma.salaryAdvance.findUnique({
     where: { id: String(requestId) },
@@ -219,7 +233,7 @@ router.get('/advance/status', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Admin endpoint to assign or change a staff member's position
-router.post('/assign-position', authenticate, async (req: AuthRequest, res) => {
+router.post('/assign-position', authenticate, requireStaffWrite, async (req: AuthRequest, res) => {
   const { userId, position } = req.body;
   const user = await prisma.user.update({
     where: { id: userId },
@@ -229,7 +243,7 @@ router.post('/assign-position', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Display NHIF deduction status for the current month
-router.get('/nhif-status', authenticate, async (req: AuthRequest, res) => {
+router.get('/nhif-status', authenticate, requirePayrollRead, async (req: AuthRequest, res) => {
   const start = new Date();
   start.setDate(1); start.setHours(0, 0, 0, 0);
   const end = new Date(start); end.setMonth(end.getMonth() + 1);
@@ -241,7 +255,7 @@ router.get('/nhif-status', authenticate, async (req: AuthRequest, res) => {
 });
 
 // Produce staff-oriented financial reports (salaries, deductions, advances)
-router.get('/reports/financial', authenticate, async (_req, res) => {
+router.get('/reports/financial', authenticate, requireFinanceView, async (_req, res) => {
   const [salaries, advances, expenses] = await Promise.all([
     prisma.staffSalary.findMany(),
     prisma.salaryAdvance.findMany(),
@@ -253,7 +267,7 @@ router.get('/reports/financial', authenticate, async (_req, res) => {
 // ---- New payroll/profile endpoints aligned to staff_profiles + staff_salaries ----
 
 // List staff profiles with latest salary entry (admin use)
-router.get('/profiles', authenticate, async (_req, res) => {
+router.get('/profiles', authenticate, requirePayrollRead, async (_req, res) => {
   const rows = await prisma.$queryRaw<
     any[]
   >`SELECT sp.id,
@@ -292,7 +306,7 @@ router.get('/profiles', authenticate, async (_req, res) => {
 });
 
 // Get a single staff profile with salary history
-router.get('/profiles/:profileId', authenticate, async (req, res) => {
+router.get('/profiles/:profileId', authenticate, requirePayrollRead, async (req, res) => {
   const { profileId } = req.params;
   const [profileRow] = await prisma.$queryRaw<
     any[]
@@ -348,7 +362,7 @@ router.get('/profiles/:profileId', authenticate, async (req, res) => {
 });
 
 // Update core payroll fields on a staff profile
-router.put('/profiles/:profileId', authenticate, async (req, res) => {
+router.put('/profiles/:profileId', authenticate, requirePayrollWrite, async (req, res) => {
   const { profileId } = req.params;
   const { staffPosition, bankName, accountNumber, nhifNumber, nssfNumber, basicSalary } = req.body;
 
@@ -389,7 +403,7 @@ router.put('/profiles/:profileId', authenticate, async (req, res) => {
 });
 
 // Record a salary payment for a staff profile and return the created entry
-router.post('/profiles/:profileId/pay', authenticate, async (req, res) => {
+router.post('/profiles/:profileId/pay', authenticate, requirePayrollWrite, async (req, res) => {
   const { profileId } = req.params;
   const { allowances = 0, nhif = 0, nssf = 0, payDate = new Date().toISOString().slice(0, 10), status = 'PENDING' } = req.body;
 

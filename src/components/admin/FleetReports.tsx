@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { ComponentType, ReactNode, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -42,6 +42,20 @@ interface FleetReportsProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<FleetReportsLayoutProps>;
+  currentPage?: string;
+}
+
+interface FleetReportsLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -180,7 +194,13 @@ const pieChartData = [
   { name: 'Inactive', value: 1, color: '#6B7280' }
 ];
 
-export function FleetReports({ user, onNavigate, onLogout }: FleetReportsProps) {
+export function FleetReports({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/reports/fleet'
+}: FleetReportsProps) {
   const [dateRange, setDateRange] = useState('last-30-days');
   const [reportType, setReportType] = useState('performance');
 
@@ -258,9 +278,9 @@ export function FleetReports({ user, onNavigate, onLogout }: FleetReportsProps) 
   };
 
   return (
-    <AdminLayout 
+    <LayoutComponent 
       user={user} 
-      currentPage="admin/reports/fleet" 
+      currentPage={currentPage} 
       onNavigate={onNavigate} 
       onLogout={onLogout}
     >
@@ -604,6 +624,6 @@ export function FleetReports({ user, onNavigate, onLogout }: FleetReportsProps) 
           </TabsContent>
         </Tabs>
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

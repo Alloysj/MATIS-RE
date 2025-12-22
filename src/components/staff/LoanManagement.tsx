@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { applyLoan, getLoans, getPendingLoans } from '../../services/staff';
+import { usePermission } from '../../context/AccessContext';
 
 interface LoanManagementProps {
   user: {
@@ -29,6 +30,21 @@ interface LoanManagementProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<LoanManagementLayoutProps>;
+  currentPage?: string;
+}
+
+interface LoanManagementLayoutProps {
+  children: ReactNode;
+  user: {
+    id?: string;
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -62,7 +78,14 @@ const calculateExpectedDate = (months: number) => {
   return date.toISOString();
 };
 
-export function LoanManagement({ user, onNavigate, onLogout }: LoanManagementProps) {
+export function LoanManagement({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = StaffLayout,
+  currentPage = 'staff/loanmanagement'
+}: LoanManagementProps) {
+  const canApplyLoan = usePermission('LOANS:APPLY');
   const [loanType, setLoanType] = useState('');
   const [loanAmount, setLoanAmount] = useState('');
   const [loanPurpose, setLoanPurpose] = useState('');
@@ -204,35 +227,35 @@ export function LoanManagement({ user, onNavigate, onLogout }: LoanManagementPro
 
   if (loading) {
     return (
-      <StaffLayout user={user} currentPage="staff/loanmanagement" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <div className="flex items-center justify-center py-24">
           <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
         </div>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   if (error) {
     return (
-      <StaffLayout user={user} currentPage="staff/loanmanagement" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <Card className="max-w-xl mx-auto mt-24">
           <CardHeader>
             <CardTitle>Unable to load loan data</CardTitle>
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => onNavigate('staff/dashboard')}>
+            <Button variant="outline" onClick={() => onNavigate('app/dashboard')}>
               Back to Dashboard
             </Button>
             <Button onClick={loadData}>Retry</Button>
           </CardContent>
         </Card>
-      </StaffLayout>
+      </LayoutComponent>
     );
   }
 
   return (
-    <StaffLayout user={user} currentPage="staff/loanmanagement" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Header */}
         <div>
@@ -244,7 +267,7 @@ export function LoanManagement({ user, onNavigate, onLogout }: LoanManagementPro
           </p>
         </div>
 
-        {!isChairperson && (
+        {!isChairperson && canApplyLoan && (
           <Card className="border-l-4 border-[var(--neon-turquoise)]">
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
@@ -310,7 +333,7 @@ export function LoanManagement({ user, onNavigate, onLogout }: LoanManagementPro
                 </div>
 
                 <div className="md:col-span-2 flex justify-end space-x-3">
-                  <Button variant="outline" onClick={() => onNavigate('staff/dashboard')}>
+                  <Button variant="outline" onClick={() => onNavigate('app/dashboard')}>
                     Cancel
                   </Button>
                   <Button
@@ -486,7 +509,7 @@ export function LoanManagement({ user, onNavigate, onLogout }: LoanManagementPro
           </Card>
         )}
       </div>
-    </StaffLayout>
+    </LayoutComponent>
   );
 }
 

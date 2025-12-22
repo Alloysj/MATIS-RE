@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -25,6 +25,20 @@ interface RouteManagementProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<RouteManagementLayoutProps>;
+  currentPage?: string;
+}
+
+interface RouteManagementLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -63,7 +77,13 @@ const getErrorMessage = (error: unknown) => {
   return 'An unexpected error occurred';
 };
 
-export function RouteManagement({ user, onNavigate, onLogout }: RouteManagementProps) {
+export function RouteManagement({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/fleet/routes'
+}: RouteManagementProps) {
   const [routes, setRoutes] = useState<AdminRoute[]>([]);
   const [routesLoading, setRoutesLoading] = useState<boolean>(true);
   const [routesError, setRoutesError] = useState<string | null>(null);
@@ -198,12 +218,7 @@ export function RouteManagement({ user, onNavigate, onLogout }: RouteManagementP
   }, [filteredRoutes]);
 
   return (
-    <AdminLayout
-      user={user}
-      currentPage="admin/fleet/routes"
-      onNavigate={onNavigate}
-      onLogout={onLogout}
-    >
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -433,6 +448,6 @@ export function RouteManagement({ user, onNavigate, onLogout }: RouteManagementP
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

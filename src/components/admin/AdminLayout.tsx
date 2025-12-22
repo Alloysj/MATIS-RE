@@ -45,54 +45,55 @@ export function AdminLayout({ children, user, currentPage, onNavigate, onLogout 
   const navigation = [
     {
       name: 'Dashboard',
-      href: 'admin/dashboard',
+      href: 'app/admin/dashboard',
       icon: LayoutDashboard,
-      current: currentPage === 'admin/dashboard'
+      current: currentPage === 'app/admin/dashboard'
     },
     {
       name: 'User Management',
       icon: Users,
       children: [
-        { name: 'All Users', href: 'admin/users', icon: Users },
-        { name: 'Approve Users', href: 'admin/users/approve', icon: UserCheck },
-        { name: 'User Roles', href: 'admin/users/roles', icon: Shield },
-        { name: 'Create User', href: 'admin/users/create', icon: UserPlus },
-        { name: 'User Categories', href: 'admin/users/profiles', icon: Building }
+        { name: 'All Users', href: 'app/members', icon: Users },
+        { name: 'Approve Users', href: 'app/members/approve', icon: UserCheck },
+        { name: 'User Roles', href: 'app/members/roles', icon: Shield },
+        { name: 'Staff Profiles', href: 'app/admin/staff-profiles', icon: Shield },
+        { name: 'Create User', href: 'app/members/create', icon: UserPlus },
+        { name: 'User Categories', href: 'app/members/profiles', icon: Building }
       ]
     },
     {
       name: 'Fleet Management',
       icon: Car,
       children: [
-        { name: 'All Vehicles', href: 'admin/fleet', icon: Car },
-        { name: 'Route Management', href: 'admin/fleet/routes', icon: Route }
+        { name: 'All Vehicles', href: 'app/vehicles', icon: Car },
+        { name: 'Route Management', href: 'app/vehicles/routes', icon: Route }
       ]
     },
     {
       name: 'Financial',
-      href: 'admin/financials',
+      href: 'app/insurance',
       icon: DollarSign,
-      current: currentPage === 'admin/financials'
+      current: currentPage === 'app/insurance'
     },
     {
       name: 'Payroll',
-      href: 'admin/wages',
+      href: 'app/payroll/admin',
       icon: Banknote,
-      current: currentPage === 'admin/wages'
+      current: currentPage === 'app/payroll/admin'
     },
     {
       name: 'Loan Applications',
-      href: 'admin/loans',
+      href: 'app/loans',
       icon: CreditCard,
-      current: currentPage === 'admin/loans'
+      current: currentPage === 'app/loans'
     },
     {
       name: 'Reports',
       icon: FileText,
       children: [
-        { name: 'User Reports', href: 'admin/reports/users', icon: Users },
-        { name: 'Fleet Reports', href: 'admin/reports/fleet', icon: Car },
-        { name: 'Financial Reports', href: 'admin/reports/financials', icon: BarChart3 }
+        { name: 'User Reports', href: 'app/reports/users', icon: Users },
+        { name: 'Fleet Reports', href: 'app/reports/fleet', icon: Car },
+        { name: 'Financial Reports', href: 'app/reports/financials', icon: BarChart3 }
       ]
     }
   ];

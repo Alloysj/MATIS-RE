@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -25,6 +25,20 @@ interface WageManagementProps {
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<WageManagementLayoutProps>;
+  currentPage?: string;
+}
+
+interface WageManagementLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
 }
 
 type StaffRow = {
@@ -39,7 +53,13 @@ type StaffRow = {
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(value);
 
-export function WageManagement({ user, onNavigate, onLogout }: WageManagementProps) {
+export function WageManagement({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/wages'
+}: WageManagementProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -215,7 +235,7 @@ export function WageManagement({ user, onNavigate, onLogout }: WageManagementPro
   );
 
   return (
-    <AdminLayout user={user} currentPage="admin/wages" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div className="flex items-start justify-between">
           <div>
@@ -469,6 +489,6 @@ export function WageManagement({ user, onNavigate, onLogout }: WageManagementPro
           </div>
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }
