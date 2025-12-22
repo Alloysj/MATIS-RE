@@ -23,10 +23,10 @@ import {
   Search, 
   Filter,
   Smartphone,
+  Banknote,
   Calendar,
   AlertCircle,
   CheckCircle2,
-  Banknote,
   Activity,
   ArrowUpRight,
   ArrowDownRight,
@@ -65,6 +65,7 @@ import {
   searchFinanceMembers,
   submitFinancePayment
 } from '../../services/staff';
+import { processPayment } from '../../services/finance';
 
 const emptySummary: FinanceDailySummaryResponse = {
   date: new Date().toISOString(),
@@ -114,7 +115,6 @@ export function TreasurerDashboard({ user, onNavigate, onLogout }: TreasurerDash
   const [paymentMode, setPaymentMode] = useState<'stk' | 'offline'>('stk');
   const [paymentType, setPaymentType] = useState('full-remittance');
   const [amount, setAmount] = useState('');
-  const [receiptNumber, setReceiptNumber] = useState('');
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [transactionFilter, setTransactionFilter] = useState({
     category: 'all',
@@ -361,52 +361,52 @@ export function TreasurerDashboard({ user, onNavigate, onLogout }: TreasurerDash
 
   const allocationPreview = calculateAllocationPreview(Number(amount), paymentType);
 
-  // Handle payment submission - Backend: POST /finance/payments
+  // Handle payment submission - Backend: POST /finance/processPayment
   const handleSubmitPayment = async () => {
     if (!selectedMember) {
       toast.error('Please select a member');
       return;
     }
 
-    if (!amount || Number(amount) <= 0) {
+    const numericAmount = Number(amount);
+    if (!amount || Number.isNaN(numericAmount) || numericAmount <= 0) {
       toast.error('Please enter a valid amount');
       return;
     }
 
-    if (paymentMode === 'offline' && !receiptNumber) {
-      toast.error('Please enter receipt number for offline payment');
+    if (paymentMode === 'stk' && !selectedMember.phone) {
+      toast.error('Selected member does not have a phone number on file.');
       return;
     }
-
-    const paymentData = {
-      mode: paymentMode,
-      userId: selectedMember.id,
-      vehicleId: selectedMember.vehicleId ?? selectedMember.vehiclePlate,
-      amount: Number(amount),
-      category: paymentType,
-      receiptNumber: paymentMode === 'offline' ? receiptNumber : undefined,
-      paymentMethod: paymentMode === 'stk' ? 'M-PESA' : 'Cash'
-    };
 
     setPaymentSubmitting(true);
 
     try {
-      const response = await submitFinancePayment(paymentData);
-
       if (paymentMode === 'stk') {
+        const response = await processPayment({
+          phone: selectedMember.phone!,
+          vehicleId: selectedMember.vehicleId,
+          amount: numericAmount
+        });
+
         toast.success(response?.message ?? 'STK Push initiated', {
           description:
             response?.checkoutRequestId ??
-            `Customer ${selectedMember.phone} will receive M-PESA prompt shortly.`
+            `Customer ${selectedMember.phone} will receive an M-PESA prompt shortly.`
         });
       } else {
+        await submitFinancePayment({
+          userId: selectedMember.id,
+          vehicleId: selectedMember.vehicleId,
+          amount: numericAmount
+        });
+
         toast.success('Cash payment recorded successfully', {
-          description: response?.message ?? `Receipt #${receiptNumber} for KES ${amount}`
+          description: `KES ${numericAmount.toLocaleString()} recorded for ${selectedMember.name}`
         });
       }
 
       setAmount('');
-      setReceiptNumber('');
       setSelectedMember(null);
       setSearchTerm('');
 
@@ -485,9 +485,7 @@ export function TreasurerDashboard({ user, onNavigate, onLogout }: TreasurerDash
                     <Receipt className="h-5 w-5" />
                     Process Payment
                   </CardTitle>
-                  <CardDescription>
-                    Initiate M-PESA STK Push or record offline cash payment
-                  </CardDescription>
+                  <CardDescription>Initiate M-PESA STK Push or record offline cash payments</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* Payment Mode Selection */}
@@ -620,18 +618,6 @@ export function TreasurerDashboard({ user, onNavigate, onLogout }: TreasurerDash
                       min="0"
                     />
                   </div>
-
-                  {/* Receipt Number for Offline */}
-                  {paymentMode === 'offline' && (
-                    <div className="space-y-2">
-                      <Label>Receipt Number</Label>
-                      <Input
-                        placeholder="e.g., RCP-2025-001"
-                        value={receiptNumber}
-                        onChange={(e) => setReceiptNumber(e.target.value)}
-                      />
-                    </div>
-                  )}
 
                   {/* Allocation Preview */}
                   {amount && Number(amount) > 0 && (

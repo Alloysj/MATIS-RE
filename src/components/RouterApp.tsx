@@ -41,6 +41,7 @@ import { RouteManagement } from './admin/RouteManagement';
 import { UserReports } from './admin/UserReports';
 import { FinancialReports } from './admin/FinancialReports';
 import { FleetReports } from './admin/FleetReports';
+import { WageManagement as AdminWageManagement } from './admin/WageManagement';
 
 // Staff Pages
 import { StaffDashboard } from './staff/StaffDashboard';
@@ -331,6 +332,14 @@ function AppRoutes({
                 <FinancialOverview user={user} onNavigate={handleNavigate} onLogout={onLogout} />
               </ProtectedRoute>
             } 
+          />
+          <Route
+            path="/admin/wages"
+            element={
+              <ProtectedRoute user={user} routePath="admin/wages" onNavigate={handleNavigate}>
+                <AdminWageManagement user={user} onNavigate={handleNavigate} onLogout={onLogout} />
+              </ProtectedRoute>
+            }
           />
           <Route 
             path="/admin/loans" 

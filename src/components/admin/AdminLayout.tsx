@@ -19,6 +19,7 @@ import {
   CarFront,
   BarChart3,
   CreditCard,
+  Banknote,
   ChevronDown,
   ChevronRight,
   ChevronLeft,
@@ -72,6 +73,12 @@ export function AdminLayout({ children, user, currentPage, onNavigate, onLogout 
       href: 'admin/financials',
       icon: DollarSign,
       current: currentPage === 'admin/financials'
+    },
+    {
+      name: 'Payroll',
+      href: 'admin/wages',
+      icon: Banknote,
+      current: currentPage === 'admin/wages'
     },
     {
       name: 'Loan Applications',

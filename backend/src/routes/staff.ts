@@ -4,6 +4,33 @@ import { authenticate, AuthRequest } from '../middleware/auth';
 import prisma from '../prismaClient';
 const router = Router();
 
+const mapProfileRow = (row: any) => ({
+  id: String(row.id),
+  userId: String(row.user_id),
+  name: [row.first_name, row.last_name].filter(Boolean).join(' ').trim(),
+  email: row.email ?? null,
+  phone: row.phone ?? null,
+  staffPosition: row.staff_position ?? null,
+  bankName: row.bank_name ?? null,
+  accountNumber: row.account_number ?? null,
+  nhifNumber: row.nhif_number ?? null,
+  nssfNumber: row.nssf_number ?? null,
+  basicSalary: Number(row.basic_salary ?? 0),
+  hireDate: row.hire_date ? new Date(row.hire_date).toISOString().slice(0, 10) : null,
+  createdAt: row.created_at ?? null,
+  latestSalary: row.latest_salary_id
+    ? {
+        id: String(row.latest_salary_id),
+        allowances: Number(row.latest_allowances ?? 0),
+        nhif: Number(row.latest_nhif ?? 0),
+        nssf: Number(row.latest_nssf ?? 0),
+        netSalary: Number(row.latest_net_salary ?? 0),
+        payDate: row.latest_pay_date,
+        status: row.latest_status
+      }
+    : null
+});
+
 // Return authenticated staff member's name and position
 router.get('/details', authenticate, async (req: AuthRequest, res) => {
   const user = await prisma.user.findUnique({
@@ -221,6 +248,176 @@ router.get('/reports/financial', authenticate, async (_req, res) => {
     prisma.expense.findMany()
   ]);
   res.json({ salaries, advances, expenses });
+});
+
+// ---- New payroll/profile endpoints aligned to staff_profiles + staff_salaries ----
+
+// List staff profiles with latest salary entry (admin use)
+router.get('/profiles', authenticate, async (_req, res) => {
+  const rows = await prisma.$queryRaw<
+    any[]
+  >`SELECT sp.id,
+           sp.user_id,
+           sp.staff_position,
+           sp.bank_name,
+           sp.account_number,
+           sp.nhif_number,
+           sp.nssf_number,
+           sp.basic_salary,
+           sp.hire_date,
+           sp.created_at,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.phone,
+           s.id          AS latest_salary_id,
+           s.allowances  AS latest_allowances,
+           s.nhif        AS latest_nhif,
+           s.nssf        AS latest_nssf,
+           s.net_salary  AS latest_net_salary,
+           s.pay_date    AS latest_pay_date,
+           s.status      AS latest_status
+    FROM staff_profiles sp
+    JOIN users u ON u.id = sp.user_id
+    LEFT JOIN LATERAL (
+      SELECT id, allowances, nhif, nssf, net_salary, pay_date, status
+      FROM staff_salaries ss
+      WHERE ss.staff_profile_id = sp.id
+      ORDER BY ss.pay_date DESC NULLS LAST, ss.created_at DESC
+      LIMIT 1
+    ) s ON TRUE
+    ORDER BY u.first_name, u.last_name`;
+
+  res.json(rows.map(mapProfileRow));
+});
+
+// Get a single staff profile with salary history
+router.get('/profiles/:profileId', authenticate, async (req, res) => {
+  const { profileId } = req.params;
+  const [profileRow] = await prisma.$queryRaw<
+    any[]
+  >`SELECT sp.id,
+           sp.user_id,
+           sp.staff_position,
+           sp.bank_name,
+           sp.account_number,
+           sp.nhif_number,
+           sp.nssf_number,
+           sp.basic_salary,
+           sp.hire_date,
+           sp.created_at,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.phone
+    FROM staff_profiles sp
+    JOIN users u ON u.id = sp.user_id
+    WHERE sp.id = ${profileId}`;
+
+  if (!profileRow) {
+    return res.status(404).json({ message: 'Staff profile not found' });
+  }
+
+  const salaryRows = await prisma.$queryRaw<
+    any[]
+  >`SELECT id,
+           allowances,
+           nhif,
+           nssf,
+           net_salary,
+           pay_date,
+           status,
+           created_at
+    FROM staff_salaries
+    WHERE staff_profile_id = ${profileId}
+    ORDER BY pay_date DESC NULLS LAST, created_at DESC`;
+
+  res.json({
+    ...mapProfileRow(profileRow),
+    salaryHistory: salaryRows.map((row) => ({
+      id: String(row.id),
+      allowances: Number(row.allowances ?? 0),
+      nhif: Number(row.nhif ?? 0),
+      nssf: Number(row.nssf ?? 0),
+      netSalary: Number(row.net_salary ?? 0),
+      payDate: row.pay_date,
+      status: row.status,
+      createdAt: row.created_at
+    }))
+  });
+});
+
+// Update core payroll fields on a staff profile
+router.put('/profiles/:profileId', authenticate, async (req, res) => {
+  const { profileId } = req.params;
+  const { staffPosition, bankName, accountNumber, nhifNumber, nssfNumber, basicSalary } = req.body;
+
+  const updated = await prisma.$executeRaw`
+    UPDATE staff_profiles
+    SET staff_position = COALESCE(${staffPosition}, staff_position),
+        bank_name = COALESCE(${bankName}, bank_name),
+        account_number = COALESCE(${accountNumber}, account_number),
+        nhif_number = COALESCE(${nhifNumber}, nhif_number),
+        nssf_number = COALESCE(${nssfNumber}, nssf_number),
+        basic_salary = COALESCE(${basicSalary}::numeric, basic_salary),
+        updated_at = NOW()
+    WHERE id = ${profileId}`;
+
+  if (!updated) {
+    return res.status(404).json({ message: 'Staff profile not found or not updated' });
+  }
+
+  const [row] = await prisma.$queryRaw<any[]>`SELECT sp.id,
+           sp.user_id,
+           sp.staff_position,
+           sp.bank_name,
+           sp.account_number,
+           sp.nhif_number,
+           sp.nssf_number,
+           sp.basic_salary,
+           sp.hire_date,
+           sp.created_at,
+           u.first_name,
+           u.last_name,
+           u.email,
+           u.phone
+    FROM staff_profiles sp
+    JOIN users u ON u.id = sp.user_id
+    WHERE sp.id = ${profileId}`;
+
+  res.json(mapProfileRow(row));
+});
+
+// Record a salary payment for a staff profile and return the created entry
+router.post('/profiles/:profileId/pay', authenticate, async (req, res) => {
+  const { profileId } = req.params;
+  const { allowances = 0, nhif = 0, nssf = 0, payDate = new Date().toISOString().slice(0, 10), status = 'PENDING' } = req.body;
+
+  // Get base salary to compute net
+  const [profile] = await prisma.$queryRaw<any[]>`SELECT basic_salary FROM staff_profiles WHERE id = ${profileId}`;
+  if (!profile) {
+    return res.status(404).json({ message: 'Staff profile not found' });
+  }
+
+  const basicSalary = Number(profile.basic_salary ?? 0);
+  const netSalary = basicSalary + Number(allowances || 0) - Number(nhif || 0) - Number(nssf || 0);
+
+  const [inserted] = await prisma.$queryRaw<any[]>`
+    INSERT INTO staff_salaries (staff_profile_id, allowances, nhif, nssf, net_salary, pay_date, status)
+    VALUES (${profileId}, ${allowances}, ${nhif}, ${nssf}, ${netSalary}, ${payDate}, ${status})
+    RETURNING id, staff_profile_id, allowances, nhif, nssf, net_salary, pay_date, status, created_at`;
+
+  res.status(201).json({
+    id: String(inserted.id),
+    staffProfileId: String(inserted.staff_profile_id),
+    allowances: Number(inserted.allowances ?? 0),
+    nhif: Number(inserted.nhif ?? 0),
+    nssf: Number(inserted.nssf ?? 0),
+    netSalary: Number(inserted.net_salary ?? 0),
+    payDate: inserted.pay_date,
+    status: inserted.status,
+    createdAt: inserted.created_at
+  });
 });
 
 export default router;

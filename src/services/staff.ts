@@ -76,6 +76,46 @@ export interface StaffDetails {
   position: string | null;
 }
 
+export interface StaffProfile {
+  id: string;
+  userId: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  staffPosition: string | null;
+  bankName: string | null;
+  accountNumber: string | null;
+  nhifNumber: string | null;
+  nssfNumber: string | null;
+  basicSalary: number;
+  hireDate: string | null;
+  createdAt: string | null;
+  latestSalary: {
+    id: string;
+    allowances: number;
+    nhif: number;
+    nssf: number;
+    netSalary: number;
+    payDate: string | null;
+    status: string;
+  } | null;
+}
+
+export interface StaffSalaryRecord {
+  id: string;
+  allowances: number;
+  nhif: number;
+  nssf: number;
+  netSalary: number;
+  payDate: string | null;
+  status: string;
+  createdAt?: string;
+}
+
+export interface StaffProfileWithHistory extends StaffProfile {
+  salaryHistory: StaffSalaryRecord[];
+}
+
 export const getStaffDetails = () => staffRequest<StaffDetails>('/details');
 
 export interface UpdateStaffDetailsPayload {
@@ -186,6 +226,49 @@ export const recordWagePayment = (data: { description: string; amount: number; u
 export const recordExpense = (data: AddExpensePayload) => addExpenses(data);
 
 export const getNhifStatus = () => staffRequest<{ deducted: boolean }>('/nhif-status');
+
+// Payroll / profiles
+export const fetchStaffProfiles = () => staffRequest<StaffProfile[]>('/profiles');
+
+export const fetchStaffProfile = (profileId: string) =>
+  staffRequest<StaffProfileWithHistory>(`/profiles/${encodeURIComponent(profileId)}`);
+
+export const updateStaffProfile = (
+  profileId: string,
+  payload: Partial<{
+    staffPosition: string;
+    bankName: string;
+    accountNumber: string;
+    nhifNumber: string;
+    nssfNumber: string;
+    basicSalary: number;
+  }>
+) =>
+  staffRequest<StaffProfile>(
+    `/profiles/${encodeURIComponent(profileId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }
+  );
+
+export const recordStaffSalary = (
+  profileId: string,
+  payload: Partial<{
+    allowances: number;
+    nhif: number;
+    nssf: number;
+    payDate: string;
+    status: string;
+  }>
+) =>
+  staffRequest<StaffSalaryRecord>(
+    `/profiles/${encodeURIComponent(profileId)}/pay`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
 
 export interface LoanPayload {
   amount?: number;
@@ -343,13 +426,9 @@ export interface FinanceAuditLogEntry {
 }
 
 export interface FinancePaymentPayload {
-  mode: 'stk' | 'offline';
   userId: string;
   vehicleId?: string;
   amount: number;
-  category: string;
-  receiptNumber?: string;
-  paymentMethod?: string;
 }
 
 export interface FinancePaymentResponse {
@@ -372,7 +451,7 @@ export const fetchFinanceAuditLog = (params?: { date?: string; limit?: number })
   authedRequest<FinanceAuditLogEntry[]>(`${FINANCE_BASE}/payments/audit${buildQueryString(params)}`);
 
 export const submitFinancePayment = (payload: FinancePaymentPayload) =>
-  authedRequest<FinancePaymentResponse>(`${FINANCE_BASE}/payments`, {
+  authedRequest<FinancePaymentResponse>(`${FINANCE_BASE}/payments/offline`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });

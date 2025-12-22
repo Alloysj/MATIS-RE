@@ -143,6 +143,11 @@ export const routeConfigs: Record<string, RouteConfig> = {
     allowedRoles: ['Admin'],
     requiredPermissions: ['manage_financials']
   },
+  'admin/wages': {
+    path: 'admin/wages',
+    allowedRoles: ['Admin'],
+    requiredPermissions: ['manage_salary']
+  },
   'admin/loans': { 
     path: 'admin/loans', 
     allowedRoles: ['Admin'],

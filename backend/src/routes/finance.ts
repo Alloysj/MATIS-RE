@@ -126,6 +126,201 @@ const paymentWithAllocationsInclude = {
   vehicle: { select: vehicleWithRouteSelect }
 } as const;
 
+interface CompletedPaymentInput {
+  userId?: string | null;
+  vehicleId?: string | null;
+  amount: Prisma.Decimal;
+  reference?: string | null;
+}
+
+interface CompletedPaymentResult {
+  payment: Awaited<ReturnType<typeof prisma.payment.create>>;
+  remittanceAmount: Prisma.Decimal;
+  insuranceAmount: Prisma.Decimal;
+  loanPayment: Prisma.Decimal;
+  savingsAmount: Prisma.Decimal;
+}
+
+const recordCompletedPayment = async (
+  tx: Prisma.TransactionClient,
+  { userId, vehicleId, amount, reference }: CompletedPaymentInput
+): Promise<CompletedPaymentResult> => {
+  const amountDecimal = decimal(amount);
+  const remittanceAmount = amountDecimal.greaterThanOrEqualTo(DAILY_REMITTANCE)
+    ? DAILY_REMITTANCE
+    : amountDecimal;
+  let remainder = amountDecimal.minus(remittanceAmount);
+
+  const insuranceAmount = remainder.greaterThanOrEqualTo(DAILY_INSURANCE)
+    ? DAILY_INSURANCE
+    : remainder.greaterThan(0)
+      ? remainder
+      : decimal(0);
+  remainder = remainder.minus(insuranceAmount);
+
+  let savingsAccount = null;
+  let userRecord = null;
+  let activeLoan = null;
+
+  if (userId) {
+    userRecord = await tx.user.findUnique({ where: { id: userId } });
+    if (userRecord) {
+      savingsAccount = await tx.savingsAccount.findFirst({
+        where: {
+          userId,
+          ...(vehicleId ? { vehicleId } : {})
+        }
+      });
+
+      if (!savingsAccount) {
+        savingsAccount = await tx.savingsAccount.create({
+          data: {
+            userId,
+            vehicleId,
+            accountType: 'VEHICLE'
+          }
+        });
+      }
+
+      activeLoan = await tx.loan.findFirst({
+        where: {
+          applicantId: userId,
+          status: { in: [LoanStatus.APPROVED, LoanStatus.DISBURSED] }
+        },
+        orderBy: { applicationDate: 'desc' }
+      });
+    }
+  }
+
+  const currentLoanBalance = userRecord?.loanBalance ? decimal(userRecord.loanBalance) : decimal(0);
+  let loanPayment = decimal(0);
+  if (remainder.greaterThan(0) && currentLoanBalance.greaterThan(0)) {
+    loanPayment = remainder.greaterThan(currentLoanBalance) ? currentLoanBalance : remainder;
+    remainder = remainder.minus(loanPayment);
+  }
+
+  const savingsAmount = remainder.greaterThan(0) ? remainder : decimal(0);
+
+  if (savingsAccount) {
+    const updatedBalance = decimal(savingsAccount.balance ?? 0).plus(savingsAmount);
+    await tx.savingsAccount.update({
+      where: { id: savingsAccount.id },
+      data: { balance: updatedBalance }
+    });
+  }
+
+  if (userRecord) {
+    const updatedSavingsBalance = decimal(userRecord.savingsBalance ?? 0).plus(savingsAmount);
+    let updatedLoanBalance = currentLoanBalance.minus(loanPayment);
+    if (updatedLoanBalance.lessThan(0)) {
+      updatedLoanBalance = decimal(0);
+    }
+
+    await tx.user.update({
+      where: { id: userRecord.id },
+      data: {
+        savingsBalance: updatedSavingsBalance,
+        loanBalance: updatedLoanBalance
+      }
+    });
+
+    if (activeLoan) {
+      await tx.loan.update({
+        where: { id: activeLoan.id },
+        data: {
+          existingLoans: updatedLoanBalance,
+          ...(updatedLoanBalance.lessThanOrEqualTo(0) ? { status: LoanStatus.REPAID } : {})
+        }
+      });
+    }
+  }
+
+  const payment = await tx.payment.create({
+    data: {
+      userId: userId ?? undefined,
+      vehicleId: vehicleId ?? undefined,
+      totalAmount: amountDecimal,
+      mpesaReference: reference ?? null,
+      status: PaymentStatus.COMPLETED
+    }
+  });
+
+  const allocations: { paymentId: string; category: PaymentCategory; amount: Prisma.Decimal }[] = [];
+  if (remittanceAmount.greaterThan(0)) {
+    allocations.push({ paymentId: payment.id, category: PaymentCategory.OPERATIONS, amount: remittanceAmount });
+  }
+  if (insuranceAmount.greaterThan(0)) {
+    allocations.push({ paymentId: payment.id, category: PaymentCategory.INSURANCE, amount: insuranceAmount });
+  }
+  if (loanPayment.greaterThan(0)) {
+    allocations.push({ paymentId: payment.id, category: PaymentCategory.LOAN_REPAYMENT, amount: loanPayment });
+  }
+  if (savingsAmount.greaterThan(0)) {
+    allocations.push({ paymentId: payment.id, category: PaymentCategory.SAVINGS, amount: savingsAmount });
+  }
+
+  if (allocations.length > 0) {
+    await tx.paymentAllocation.createMany({ data: allocations });
+  }
+
+  if (savingsAccount) {
+    if (remittanceAmount.greaterThan(0)) {
+      await tx.transaction.create({
+        data: {
+          accountId: savingsAccount.id,
+          userId: userId ?? undefined,
+          vehicleId: vehicleId ?? undefined,
+          paymentId: payment.id,
+          type: TransactionType.OPERATIONS_FEE,
+          amount: remittanceAmount,
+          description: 'Daily remittance deduction'
+        }
+      });
+    }
+    if (insuranceAmount.greaterThan(0)) {
+      await tx.transaction.create({
+        data: {
+          accountId: savingsAccount.id,
+          userId: userId ?? undefined,
+          vehicleId: vehicleId ?? undefined,
+          paymentId: payment.id,
+          type: TransactionType.INSURANCE_PAYMENT,
+          amount: insuranceAmount,
+          description: 'Insurance deduction'
+        }
+      });
+    }
+    if (loanPayment.greaterThan(0)) {
+      await tx.transaction.create({
+        data: {
+          accountId: savingsAccount.id,
+          userId: userId ?? undefined,
+          vehicleId: vehicleId ?? undefined,
+          paymentId: payment.id,
+          type: TransactionType.LOAN_REPAYMENT,
+          amount: loanPayment,
+          description: 'Loan repayment from remittance'
+        }
+      });
+    }
+    if (savingsAmount.greaterThan(0)) {
+      await tx.transaction.create({
+        data: {
+          accountId: savingsAccount.id,
+          userId: userId ?? undefined,
+          vehicleId: vehicleId ?? undefined,
+          paymentId: payment.id,
+          type: TransactionType.DEPOSIT,
+          amount: savingsAmount,
+          description: 'Savings top up from remittance'
+        }
+      });
+    }
+  }
+
+  return { payment, remittanceAmount, insuranceAmount, loanPayment, savingsAmount };
+};
+
 type PaymentWithAllocations = Prisma.PaymentGetPayload<{ include: typeof paymentWithAllocationsInclude }>;
 
 const formatUserName = (user?: { firstName: string | null; lastName: string | null }) => {
@@ -576,6 +771,50 @@ router.post('/processPayment', authenticate, async (req: AuthRequest, res) => {
   }
 });
 
+router.post('/payments/offline', authenticate, async (req: AuthRequest, res) => {
+  try {
+    const { userId, vehicleId, amount } = req.body ?? {};
+    if (!userId) {
+      return res.status(400).json({ message: 'userId is required.' });
+    }
+
+    const numericAmount = Number.parseFloat(String(amount ?? ''));
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      return res.status(400).json({ message: 'A positive amount is required.' });
+    }
+
+    const memberExists = await prisma.user.findUnique({ where: { id: String(userId) } });
+    if (!memberExists) {
+      return res.status(404).json({ message: 'Member not found.' });
+    }
+
+    if (vehicleId) {
+      const vehicle = await prisma.vehicle.findUnique({ where: { id: String(vehicleId) } });
+      if (!vehicle) {
+        return res.status(404).json({ message: 'Vehicle not found.' });
+      }
+    }
+
+    const result = await prisma.$transaction((tx) =>
+      recordCompletedPayment(tx, {
+        userId: String(userId),
+        vehicleId: vehicleId ? String(vehicleId) : undefined,
+        amount: decimal(numericAmount),
+        reference: null
+      })
+    );
+
+    return res.status(201).json({
+      paymentId: result.payment.id,
+      status: 'completed',
+      message: 'Cash payment recorded successfully.'
+    });
+  } catch (error) {
+    console.error('Failed to record offline payment', error);
+    return res.status(500).json({ message: 'Failed to record offline payment' });
+  }
+});
+
 router.post('/mpesaCallback', async (req, res) => {
   try {
     const body = req.body?.Body?.stkCallback;
@@ -641,179 +880,12 @@ router.post('/mpesaCallback', async (req, res) => {
         amountValueRaw !== null && amountValueRaw !== undefined ? Number(amountValueRaw) : existing.amount
       );
 
-      const remittanceAmount = amountDecimal.greaterThanOrEqualTo(DAILY_REMITTANCE)
-        ? DAILY_REMITTANCE
-        : amountDecimal;
-      let remainder = amountDecimal.minus(remittanceAmount);
-
-      const insuranceAmount = remainder.greaterThanOrEqualTo(DAILY_INSURANCE)
-        ? DAILY_INSURANCE
-        : remainder.greaterThan(0)
-          ? remainder
-          : decimal(0);
-      remainder = remainder.minus(insuranceAmount);
-
-      const userId = existing.userId;
-      let loanPayment = decimal(0);
-      let savingsAmount = decimal(0);
-      let savingsAccount = null;
-      let userRecord = null;
-      let activeLoan = null;
-
-      if (userId) {
-        userRecord = await tx.user.findUnique({ where: { id: userId } });
-        if (userRecord) {
-          savingsAccount = await tx.savingsAccount.findFirst({
-            where: {
-              userId,
-              ...(existing.vehicleId ? { vehicleId: existing.vehicleId } : {})
-            }
-          });
-
-          if (!savingsAccount) {
-            savingsAccount = await tx.savingsAccount.create({
-              data: {
-                userId,
-                vehicleId: existing.vehicleId,
-                accountType: 'VEHICLE'
-              }
-            });
-          }
-
-          activeLoan = await tx.loan.findFirst({
-            where: {
-              applicantId: userId,
-              status: { in: [LoanStatus.APPROVED, LoanStatus.DISBURSED] }
-            },
-            orderBy: { applicationDate: 'desc' }
-          });
-        }
-      }
-
-      const currentLoanBalance = userRecord?.loanBalance ? decimal(userRecord.loanBalance) : decimal(0);
-      if (remainder.greaterThan(0) && currentLoanBalance.greaterThan(0)) {
-        loanPayment = remainder.greaterThan(currentLoanBalance) ? currentLoanBalance : remainder;
-        remainder = remainder.minus(loanPayment);
-      }
-
-      savingsAmount = remainder.greaterThan(0) ? remainder : decimal(0);
-
-      if (savingsAccount) {
-        const updatedBalance = decimal(savingsAccount.balance ?? 0).plus(savingsAmount);
-        await tx.savingsAccount.update({
-          where: { id: savingsAccount.id },
-          data: { balance: updatedBalance }
-        });
-      }
-
-      if (userRecord) {
-        const updatedSavingsBalance = decimal(userRecord.savingsBalance ?? 0).plus(savingsAmount);
-        let updatedLoanBalance = currentLoanBalance.minus(loanPayment);
-        if (updatedLoanBalance.lessThan(0)) {
-          updatedLoanBalance = decimal(0);
-        }
-
-        await tx.user.update({
-          where: { id: userRecord.id },
-          data: {
-            savingsBalance: updatedSavingsBalance,
-            loanBalance: updatedLoanBalance
-          }
-        });
-
-        if (activeLoan) {
-          await tx.loan.update({
-            where: { id: activeLoan.id },
-            data: {
-              existingLoans: updatedLoanBalance,
-              ...(updatedLoanBalance.lessThanOrEqualTo(0) ? { status: LoanStatus.REPAID } : {})
-            }
-          });
-        }
-      }
-
-      const payment = await tx.payment.create({
-        data: {
-          userId: existing.userId,
-          vehicleId: existing.vehicleId,
-          totalAmount: amountDecimal,
-          mpesaReference: normalizedReceipt,
-          status: PaymentStatus.COMPLETED
-        }
+      const { payment } = await recordCompletedPayment(tx, {
+        userId: existing.userId ?? undefined,
+        vehicleId: existing.vehicleId ?? undefined,
+        amount: amountDecimal,
+        reference: normalizedReceipt
       });
-
-      const allocations: { paymentId: string; category: PaymentCategory; amount: Prisma.Decimal }[] = [];
-      if (remittanceAmount.greaterThan(0)) {
-        allocations.push({ paymentId: payment.id, category: PaymentCategory.OPERATIONS, amount: remittanceAmount });
-      }
-      if (insuranceAmount.greaterThan(0)) {
-        allocations.push({ paymentId: payment.id, category: PaymentCategory.INSURANCE, amount: insuranceAmount });
-      }
-      if (loanPayment.greaterThan(0)) {
-        allocations.push({ paymentId: payment.id, category: PaymentCategory.LOAN_REPAYMENT, amount: loanPayment });
-      }
-      if (savingsAmount.greaterThan(0)) {
-        allocations.push({ paymentId: payment.id, category: PaymentCategory.SAVINGS, amount: savingsAmount });
-      }
-
-      if (allocations.length > 0) {
-        await tx.paymentAllocation.createMany({ data: allocations });
-      }
-
-      if (savingsAccount) {
-        if (remittanceAmount.greaterThan(0)) {
-          await tx.transaction.create({
-            data: {
-              accountId: savingsAccount.id,
-              userId: existing.userId ?? undefined,
-              vehicleId: existing.vehicleId ?? undefined,
-              paymentId: payment.id,
-              type: TransactionType.OPERATIONS_FEE,
-              amount: remittanceAmount,
-              description: 'Daily remittance deduction'
-            }
-          });
-        }
-        if (insuranceAmount.greaterThan(0)) {
-          await tx.transaction.create({
-            data: {
-              accountId: savingsAccount.id,
-              userId: existing.userId ?? undefined,
-              vehicleId: existing.vehicleId ?? undefined,
-              paymentId: payment.id,
-              type: TransactionType.INSURANCE_PAYMENT,
-              amount: insuranceAmount,
-              description: 'Insurance deduction'
-            }
-          });
-        }
-        if (loanPayment.greaterThan(0)) {
-          await tx.transaction.create({
-            data: {
-              accountId: savingsAccount.id,
-              userId: existing.userId ?? undefined,
-              vehicleId: existing.vehicleId ?? undefined,
-              paymentId: payment.id,
-              type: TransactionType.LOAN_REPAYMENT,
-              amount: loanPayment,
-              description: 'Loan repayment from remittance'
-            }
-          });
-        }
-        if (savingsAmount.greaterThan(0)) {
-          await tx.transaction.create({
-            data: {
-              accountId: savingsAccount.id,
-              userId: existing.userId ?? undefined,
-              vehicleId: existing.vehicleId ?? undefined,
-              paymentId: payment.id,
-              type: TransactionType.DEPOSIT,
-              amount: savingsAmount,
-              description: 'Savings top up from remittance'
-            }
-          });
-        }
-      }
 
       baseMetadata.paymentId = payment.id;
       baseMetadata.receiptNumber = normalizedReceipt;
