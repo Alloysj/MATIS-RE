@@ -19,6 +19,13 @@ enum UserStatus {
   @@map("user_status")
 }
 
+enum UserType {
+  ADMIN
+  STAFF
+  USER
+  @@map("user_type")
+}
+
 enum VehicleStatus {
   ACTIVE
   INACTIVE
@@ -135,8 +142,10 @@ model Role {
   name        String          @unique
   description String?
   createdAt   DateTime        @default(now()) @map("created_at")
-  users       User[]
+  users       UserRole[]
+  primaryUsers User[]         @relation("PrimaryRole")
   rolePermissions RolePermission[]
+  staffProfileRoles StaffProfileRole[]
   @@map("roles")
 }
 
@@ -159,6 +168,39 @@ model RolePermission {
   @@map("role_permissions")
 }
 
+model UserRole {
+  user   User   @relation(fields: [userId], references: [id])
+  userId String @map("user_id")
+  role   Role   @relation(fields: [roleId], references: [id])
+  roleId String @map("role_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model StaffProfile {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  roles       StaffProfileRole[]
+  @@map("staff_profiles")
+}
+
+model StaffProfileRole {
+  staffProfile   StaffProfile @relation(fields: [staffProfileId], references: [id], onDelete: Cascade)
+  staffProfileId String       @map("staff_profile_id")
+  role           Role         @relation(fields: [roleId], references: [id])
+  roleId         String       @map("role_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@id([staffProfileId, roleId])
+  @@map("staff_profile_roles")
+}
+
 model User {
   id                    String   @id @default(uuid())
   memberNumber          BigInt   @unique @default(dbgenerated("nextval('users_member_number_seq'::regclass)")) @map("member_number")
@@ -167,8 +209,10 @@ model User {
   email                 String   @unique
   phone                 String?
   passwordHash          String   @map("password_hash")
+  userType              UserType @default(USER) @map("user_type")
   roleId                String?  @map("role_id")
-  role                  Role?    @relation(fields: [roleId], references: [id])
+  role                  Role?    @relation("PrimaryRole", fields: [roleId], references: [id])
+  roles                 UserRole[]
   status                UserStatus @default(PENDING)
   membershipType        String?  @map("membership_type")
   profileCategory       String?  @map("profile_category")

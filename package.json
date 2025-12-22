@@ -60,13 +60,14 @@
             "@types/react-dom": "^19.1.9",
             "@vitejs/plugin-react-swc": "^3.10.2",
             "prisma": "^6.15.0",
-            "supabase": "^2.39.2",
             "ts-node-dev": "^2.0.0",
             "typescript": "^5.9.2",
-            "vite": "6.3.5"
+            "vite": "6.3.5",
+            "vitest": "^4.0.8"
       },
       "scripts": {
             "dev": "vite",
-            "build": "vite build"
+            "build": "vite build",
+            "test": "vitest"
       }
 }

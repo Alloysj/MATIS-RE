@@ -34,6 +34,7 @@ import { FleetManagement } from './components/admin/FleetManagement';
 import { FinancialOverview } from './components/admin/FinancialOverview';
 import { LoanApplications } from './components/admin/LoanApplications';
 import { RouteManagement } from './components/admin/RouteManagement';
+import { WageManagement as AdminWageManagement } from './components/admin/WageManagement';
 import { UserReports } from './components/admin/UserReports';
 import { FinancialReports } from './components/admin/FinancialReports';
 import { FleetReports } from './components/admin/FleetReports';
@@ -95,6 +96,9 @@ export default function App() {
   const handleLogout = () => {
     setUser(null);
     setCurrentPage('home');
+    if (typeof window !== 'undefined') {
+      window.location.href = 'http://localhost:3000/';
+    }
   };
 
   const handleCapitalPaymentComplete = () => {
@@ -258,6 +262,12 @@ export default function App() {
         return (
           <ProtectedRoute user={user} routePath="admin/financials" onNavigate={handleNavigate}>
             <FinancialOverview user={user} onNavigate={handleNavigate} onLogout={handleLogout} />
+          </ProtectedRoute>
+        );
+      case 'admin/wages':
+        return (
+          <ProtectedRoute user={user} routePath="admin/wages" onNavigate={handleNavigate}>
+            <AdminWageManagement user={user} onNavigate={handleNavigate} onLogout={handleLogout} />
           </ProtectedRoute>
         );
       case 'admin/loans':

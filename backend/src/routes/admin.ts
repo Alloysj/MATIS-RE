@@ -1,4 +1,4 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router } from 'express';
 import {
   Prisma,
   UserStatus,
@@ -14,10 +14,10 @@ import {
 } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { authenticate, AuthRequest } from '../middleware/auth';
+import { requirePermission } from '../middleware/rbac';
 import prisma from '../prismaClient';
 const router = Router();
 
-const ADMIN_ROLE_NAMES = new Set(['ADMIN', 'SUPERADMIN', 'SUPER ADMIN']);
 const LOAN_STATUS_VALUES = Object.values(LoanStatus) as LoanStatus[];
 const DEFAULT_DISBURSED_LOAN_STATUSES: LoanStatus[] = [
   LoanStatus.APPROVED,
@@ -180,14 +180,17 @@ const vehicleSummaryInclude = {
   },
   savingsAccounts: {
     select: {
-      balance: true
+      id: true,
+      balance: true,
+      accountType: true
     }
   },
   loans: {
     select: {
       id: true,
       amount: true,
-      status: true
+      status: true,
+      type: true
     }
   },
   payments: {
@@ -578,29 +581,18 @@ const parseDateUpdateValue = (value: unknown): Date | null | undefined => {
   return date ?? undefined;
 };
 
-const requireAdmin = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (!req.user?.id) {
-    return res.status(401).json({ message: 'Authentication required' });
-  }
-
-  try {
-    const adminRecord = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      include: { role: true }
-    });
-
-    const roleName = adminRecord?.role?.name?.trim().toUpperCase();
-
-    if (!adminRecord || !roleName || !ADMIN_ROLE_NAMES.has(roleName)) {
-      return res.status(403).json({ message: 'Admin privileges required' });
-    }
-
-    next();
-  } catch (error) {
-    console.error('Failed to verify admin privileges', error);
-    res.status(500).json({ message: 'Failed to verify admin privileges' });
-  }
-};
+const requireMembersRead = requirePermission('MEMBERS:READ');
+const requireMembersCreate = requirePermission('MEMBERS:CREATE');
+const requireMembersUpdate = requirePermission('MEMBERS:UPDATE');
+const requireMembersApprove = requirePermission('MEMBERS:APPROVE');
+const requireVehiclesRead = requirePermission('VEHICLES:READ');
+const requireVehiclesWrite = requirePermission('VEHICLES:WRITE');
+const requireVehiclesAssign = requirePermission('VEHICLES:ASSIGN_DRIVER');
+const requireInsuranceWrite = requirePermission('INSURANCE:WRITE');
+const requireInsuranceRead = requirePermission('INSURANCE:VIEW');
+const requireLoansView = requirePermission('LOANS:VIEW');
+const requireLoansApprove = requirePermission('LOANS:APPROVE');
+const requireFinanceView = requirePermission('FINANCE:VIEW');
 
 const buildUserName = (user: { firstName: string; lastName: string }): string => {
   return [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
@@ -806,6 +798,28 @@ const mapVehicleToSummary = (vehicle: VehicleWithSummaryRelations) => {
       outstandingLoanAmount,
       activeLoanCount: activeLoans.length
     },
+    registrationDate: vehicle.dateAdded.toISOString(),
+    registrationExpiry: vehicle.registrationExpiry ? vehicle.registrationExpiry.toISOString() : null,
+    insuranceProvider: vehicle.insuranceProvider ?? null,
+    policyType: vehicle.policyType ?? null,
+    insuranceExpiry: vehicle.insuranceExpiry ? vehicle.insuranceExpiry.toISOString() : null,
+    premium: decimalToNumber(vehicle.premium),
+    capacity: vehicle.capacity ?? null,
+    chassisNumber: vehicle.chassisNumber ?? null,
+    engineNumber: vehicle.engineNumber ?? null,
+    savingsAccounts: vehicle.savingsAccounts.map((account) => ({
+      id: account.id,
+      accountType: account.accountType ?? null,
+      balance: decimalToNumber(account.balance)
+    })),
+    loans: vehicle.loans.map((loan) => ({
+      id: loan.id,
+      amount: decimalToNumber(loan.amount),
+      statusCode: loan.status,
+      status: formatEnumLabel(loan.status) ?? loan.status,
+      typeCode: loan.type,
+      type: formatEnumLabel(loan.type) ?? loan.type
+    })),
     lastPayment: lastPayment
       ? {
           id: lastPayment.id,
@@ -941,9 +955,9 @@ const listUsers = async (where: Prisma.UserWhereInput) => {
   return records.map(mapUserToSummary);
 };
 
-router.use(authenticate, requireAdmin);
+router.use(authenticate);
 
-router.get('/users', async (req, res) => {
+router.get('/users', requireMembersRead, async (req, res) => {
   try {
     const status = normalizeUserStatus(req.query.status);
     const searchTerm = toStringOrNull(req.query.search);
@@ -992,7 +1006,7 @@ router.get('/users', async (req, res) => {
   }
 });
 
-router.get('/users/:userId', async (req, res) => {
+router.get('/users/:userId', requireMembersRead, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.params.userId },
@@ -1010,7 +1024,7 @@ router.get('/users/:userId', async (req, res) => {
   }
 });
 
-router.post('/users', async (req, res) => {
+router.post('/users', requireMembersCreate, async (req, res) => {
   try {
     const body = req.body ?? {};
     const explicitFirstName = toStringOrNull(body.firstName);
@@ -1112,7 +1126,7 @@ router.post('/users', async (req, res) => {
     res.status(500).json({ message: 'Failed to create user' });
   }
 });
-router.patch('/users/:userId', async (req, res) => {
+router.patch('/users/:userId', requireMembersUpdate, async (req, res) => {
   try {
     const body = req.body ?? {};
     const data: Prisma.UserUpdateInput = {};
@@ -1213,7 +1227,7 @@ const updateUserStatus = async (userId: string, status: UserStatus) => {
   return mapUserToSummary(updated);
 };
 
-router.post('/users/:userId/approve', async (req, res) => {
+router.post('/users/:userId/approve', requireMembersApprove, async (req, res) => {
   try {
     const roleId = toStringOrNull(req.body?.roleId);
     if (!roleId) {
@@ -1234,7 +1248,7 @@ router.post('/users/:userId/approve', async (req, res) => {
   }
 });
 
-router.post('/users/:userId/reject', async (req, res) => {
+router.post('/users/:userId/reject', requireMembersApprove, async (req, res) => {
   try {
     const targetStatus = normalizeUserStatus(req.body?.status) ?? UserStatus.SUSPENDED;
     const summary = await updateUserStatus(req.params.userId, targetStatus);
@@ -1248,7 +1262,7 @@ router.post('/users/:userId/reject', async (req, res) => {
   }
 });
 
-router.get('/users-approved', async (_req, res) => {
+router.get('/users-approved', requireMembersRead, async (_req, res) => {
   try {
     res.json(await listUsers({ status: UserStatus.ACTIVE }));
   } catch (error) {
@@ -1257,7 +1271,7 @@ router.get('/users-approved', async (_req, res) => {
   }
 });
 
-router.get('/users-pending-approval', async (_req, res) => {
+router.get('/users-pending-approval', requireMembersRead, async (_req, res) => {
   try {
     res.json(await listUsers({ status: UserStatus.PENDING }));
   } catch (error) {
@@ -1266,7 +1280,7 @@ router.get('/users-pending-approval', async (_req, res) => {
   }
 });
 
-router.post('/approve-user', async (req, res) => {
+router.post('/approve-user', requireMembersApprove, async (req, res) => {
   try {
     const userId = toStringOrNull(req.body?.userId);
     const roleId = toStringOrNull(req.body?.roleId);
@@ -1291,7 +1305,7 @@ router.post('/approve-user', async (req, res) => {
   }
 });
 
-router.post('/disapprove-user', async (req, res) => {
+router.post('/disapprove-user', requireMembersApprove, async (req, res) => {
   try {
     const userId = toStringOrNull(req.body?.userId);
     if (!userId) {
@@ -1311,7 +1325,7 @@ router.post('/disapprove-user', async (req, res) => {
 });
 
 // -------- Fleet management (admin) --------
-router.get('/fleet/vehicles', async (req, res) => {
+router.get('/fleet/vehicles', requireVehiclesRead, async (req, res) => {
   try {
     const status = normalizeVehicleStatus(req.query.status);
     const registrationStatus = normalizeRegistrationStatus(req.query.registrationStatus);
@@ -1367,7 +1381,7 @@ router.get('/fleet/vehicles', async (req, res) => {
   }
 });
 
-router.get('/fleet/vehicles/:vehicleId', async (req, res) => {
+router.get('/fleet/vehicles/:vehicleId', requireVehiclesRead, async (req, res) => {
   try {
     const vehicle = await prisma.vehicle.findUnique({
       where: { id: req.params.vehicleId },
@@ -1385,7 +1399,7 @@ router.get('/fleet/vehicles/:vehicleId', async (req, res) => {
   }
 });
 
-router.post('/fleet/vehicles', async (req, res) => {
+router.post('/fleet/vehicles', requireVehiclesWrite, async (req, res) => {
   try {
     const body = req.body ?? {};
     const ownerId = toStringOrNull(body.ownerId);
@@ -1494,7 +1508,7 @@ router.post('/fleet/vehicles', async (req, res) => {
   }
 });
 
-router.patch('/fleet/vehicles/:vehicleId', async (req, res) => {
+router.patch('/fleet/vehicles/:vehicleId', requireVehiclesWrite, async (req, res) => {
   const { vehicleId } = req.params;
 
   try {
@@ -1700,7 +1714,7 @@ router.patch('/fleet/vehicles/:vehicleId', async (req, res) => {
   }
 });
 
-router.delete('/fleet/vehicles/:vehicleId', async (req, res) => {
+router.delete('/fleet/vehicles/:vehicleId', requireVehiclesWrite, async (req, res) => {
   const { vehicleId } = req.params;
   try {
     const vehicle = await prisma.vehicle.findUnique({
@@ -1744,7 +1758,7 @@ router.delete('/fleet/vehicles/:vehicleId', async (req, res) => {
   }
 });
 
-router.post('/fleet/vehicles/:vehicleId/assign-driver', async (req, res) => {
+router.post('/fleet/vehicles/:vehicleId/assign-driver', requireVehiclesAssign, async (req, res) => {
   const { vehicleId } = req.params;
   const driverId = toStringOrNull(req.body?.driverId);
   const assignedAtInput = req.body?.assignedAt;
@@ -1815,7 +1829,7 @@ router.post('/fleet/vehicles/:vehicleId/assign-driver', async (req, res) => {
   }
 });
 
-router.post('/fleet/vehicles/:vehicleId/insurance/pay', async (req, res) => {
+router.post('/fleet/vehicles/:vehicleId/insurance/pay', requireInsuranceWrite, async (req, res) => {
   const { vehicleId } = req.params;
 
   try {
@@ -1919,7 +1933,7 @@ router.post('/fleet/vehicles/:vehicleId/insurance/pay', async (req, res) => {
   }
 });
 
-router.get('/loans', async (req, res) => {
+router.get('/loans', requireLoansView, async (req, res) => {
   try {
     const status = normalizeLoanStatus(req.query.status);
     const type = normalizeLoanType(req.query.type);
@@ -1986,7 +2000,7 @@ router.get('/loans', async (req, res) => {
   }
 });
 
-router.get('/loans/:loanId', async (req, res) => {
+router.get('/loans/:loanId', requireLoansView, async (req, res) => {
   try {
     const loan = await prisma.loan.findUnique({
       where: { id: req.params.loanId },
@@ -2004,7 +2018,7 @@ router.get('/loans/:loanId', async (req, res) => {
   }
 });
 
-router.patch('/loans/:loanId', async (req: AuthRequest, res) => {
+router.patch('/loans/:loanId', requireLoansApprove, async (req: AuthRequest, res) => {
   try {
     const { loanId } = req.params;
     const loan = await prisma.loan.findUnique({ where: { id: loanId } });
@@ -2074,7 +2088,7 @@ router.patch('/loans/:loanId', async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/dashboard/users', async (_req, res) => {
+router.get('/dashboard/users', requireMembersRead, async (_req, res) => {
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
@@ -2107,7 +2121,7 @@ router.get('/dashboard/users', async (_req, res) => {
   }
 });
 
-router.get('/dashboard/vehicles', async (_req, res) => {
+router.get('/dashboard/vehicles', requireVehiclesRead, async (_req, res) => {
   try {
     const vehicles = await prisma.vehicle.findMany({
       orderBy: { dateAdded: 'desc' },
@@ -2165,7 +2179,7 @@ router.get('/dashboard/vehicles', async (_req, res) => {
   }
 });
 
-router.get('/dashboard/savings', async (_req, res) => {
+router.get('/dashboard/savings', requireFinanceView, async (_req, res) => {
   try {
     const accounts = await prisma.savingsAccount.findMany({
       orderBy: { createdAt: 'desc' },
@@ -2219,7 +2233,7 @@ router.get('/dashboard/savings', async (_req, res) => {
   }
 });
 
-router.get('/dashboard/loans', async (_req, res) => {
+router.get('/dashboard/loans', requireLoansView, async (_req, res) => {
   try {
     const loans = await prisma.loan.findMany({
       orderBy: { applicationDate: 'desc' },
@@ -2261,7 +2275,7 @@ router.get('/dashboard/loans', async (_req, res) => {
   }
 });
 
-router.get('/dashboard/insurance', async (_req, res) => {
+router.get('/dashboard/insurance', requireInsuranceRead, async (_req, res) => {
   try {
     const policies = await prisma.insurancePolicy.findMany({
       orderBy: { expiryDate: 'asc' },
@@ -2296,7 +2310,7 @@ router.get('/dashboard/insurance', async (_req, res) => {
   }
 });
 
-router.get('/reports/remittances', async (req: AuthRequest, res) => {
+router.get('/reports/remittances', requireFinanceView, async (req: AuthRequest, res) => {
   try {
     const { start, end } = resolveDateRange({
       start: req.query.startDate,
@@ -2449,7 +2463,7 @@ router.get('/reports/remittances', async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/reports/loan-repayments', async (req: AuthRequest, res) => {
+router.get('/reports/loan-repayments', requireFinanceView, async (req: AuthRequest, res) => {
   try {
     const { start, end } = resolveDateRange({
       start: req.query.startDate,
@@ -2636,7 +2650,7 @@ router.get('/reports/loan-repayments', async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/reports/export/summary', async (req: AuthRequest, res) => {
+router.get('/reports/export/summary', requireFinanceView, async (req: AuthRequest, res) => {
   try {
     const { start, end } = resolveDateRange({
       start: req.query.startDate,

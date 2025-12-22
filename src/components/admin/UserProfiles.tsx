@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -31,6 +31,16 @@ interface UserProfilesProps {
   onNavigate: (page: string) => void;
   onLogout: () => void;
   selectedUserId?: string;
+  LayoutComponent?: ComponentType<UserProfilesLayoutProps>;
+  currentPage?: string;
+}
+
+interface UserProfilesLayoutProps {
+  children: ReactNode;
+  user: { name: string; role: string; phone: string } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
 }
 
 type AdminUserDetail = AdminUserSummary & {
@@ -85,7 +95,14 @@ const calculateAge = (value?: string | null) => {
   return `${age}`;
 };
 
-export function UserProfiles({ user, onNavigate, onLogout, selectedUserId }: UserProfilesProps) {
+export function UserProfiles({
+  user,
+  onNavigate,
+  onLogout,
+  selectedUserId,
+  LayoutComponent = AdminLayout,
+  currentPage = 'app/members/profiles'
+}: UserProfilesProps) {
   const [users, setUsers] = useState<AdminUserSummary[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -185,33 +202,33 @@ export function UserProfiles({ user, onNavigate, onLogout, selectedUserId }: Use
   if (selectedUserId) {
     if (selectedUserLoading) {
       return (
-        <AdminLayout user={user} currentPage="admin/users/profiles" onNavigate={onNavigate} onLogout={onLogout}>
+        <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
           <Card>
             <CardContent className="p-10 text-center text-gray-600">Loading user profile...</CardContent>
           </Card>
-        </AdminLayout>
+        </LayoutComponent>
       );
     }
 
     if (selectedUserError) {
       return (
-        <AdminLayout user={user} currentPage="admin/users/profiles" onNavigate={onNavigate} onLogout={onLogout}>
+        <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
           <Card>
             <CardContent className="p-10 space-y-4 text-center">
               <p className="text-red-600 font-semibold">Failed to load user profile</p>
               <p className="text-sm text-gray-600">{selectedUserError}</p>
-              <Button variant="outline" onClick={() => onNavigate('admin/users')}>
+              <Button variant="outline" onClick={() => onNavigate('app/members')}>
                 Return to User Management
               </Button>
             </CardContent>
           </Card>
-        </AdminLayout>
+        </LayoutComponent>
       );
     }
 
     if (!selectedUser) {
       return (
-        <AdminLayout user={user} currentPage="admin/users/profiles" onNavigate={onNavigate} onLogout={onLogout}>
+        <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
           <Card>
             <CardContent className="p-10 space-y-4 text-center">
               <p className="text-lg font-semibold text-gray-900">User not found</p>
@@ -219,12 +236,12 @@ export function UserProfiles({ user, onNavigate, onLogout, selectedUserId }: Use
                 We could not find the member you were looking for. They may have been removed or the link may be
                 outdated.
               </p>
-              <Button variant="outline" onClick={() => onNavigate('admin/users')}>
+              <Button variant="outline" onClick={() => onNavigate('app/members')}>
                 Return to User Management
               </Button>
             </CardContent>
           </Card>
-        </AdminLayout>
+        </LayoutComponent>
       );
     }
 
@@ -255,10 +272,10 @@ export function UserProfiles({ user, onNavigate, onLogout, selectedUserId }: Use
     };
 
     return (
-      <AdminLayout user={user} currentPage="admin/users/profiles" onNavigate={onNavigate} onLogout={onLogout}>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <div className="space-y-6">
           <div className="flex items-center space-x-4">
-            <Button variant="outline" onClick={() => onNavigate('admin/users')} className="flex items-center space-x-2">
+            <Button variant="outline" onClick={() => onNavigate('app/members')} className="flex items-center space-x-2">
               <ArrowLeft className="h-4 w-4" />
               <span>Back to User Management</span>
             </Button>
@@ -492,12 +509,12 @@ export function UserProfiles({ user, onNavigate, onLogout, selectedUserId }: Use
             </Card>
           )}
         </div>
-      </AdminLayout>
+      </LayoutComponent>
     );
   }
 
   return (
-    <AdminLayout user={user} currentPage="admin/users/profiles" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">User Profiles</h1>
@@ -606,7 +623,7 @@ export function UserProfiles({ user, onNavigate, onLogout, selectedUserId }: Use
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => onNavigate(`admin/users/user_profile/${candidate.id}`)}
+                              onClick={() => onNavigate(`app/members/profiles/${candidate.id}`)}
                             >
                               View Profile
                             </Button>
@@ -621,7 +638,7 @@ export function UserProfiles({ user, onNavigate, onLogout, selectedUserId }: Use
           </div>
         )}
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }
 

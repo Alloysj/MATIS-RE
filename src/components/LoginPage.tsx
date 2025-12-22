@@ -9,7 +9,14 @@ import { login, getUserDetails } from '../services/auth';
 
 interface LoginPageProps {
   onNavigate: (page: string) => void;
-  onLogin?: (userData: { id?: string; name: string; role: string; phone: string; hasCompletedCapitalPayment?: boolean }) => void;
+  onLogin?: (userData: {
+    id?: string;
+    name: string;
+    role: string;
+    phone: string;
+    userType?: string | null;
+    hasCompletedCapitalPayment?: boolean;
+  }) => void;
 }
 
 export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
@@ -33,10 +40,12 @@ export function LoginPage({ onNavigate, onLogin }: LoginPageProps) {
         name: fullName || user.email,
         role: user?.role?.name || 'Vehicle Owner',
         phone: user.phone || '',
+        userType: user.userType ?? null,
         hasCompletedCapitalPayment: !!user.hasCompletedCapitalPayment
       });
-      // Route to dashboard; Router decides based on role/permissions
-      onNavigate('dashboard');
+      const userType = String(user.userType ?? '').toUpperCase();
+      const isStaffSurface = userType === 'ADMIN' || userType === 'STAFF';
+      onNavigate(isStaffSurface ? 'app' : 'users/home');
     } catch (e: any) {
       setError('Invalid email or password. Please try again.');
     }

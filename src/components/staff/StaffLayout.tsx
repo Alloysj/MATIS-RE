@@ -14,7 +14,8 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Shield
 } from 'lucide-react';
 
 interface StaffLayoutProps {
@@ -33,50 +34,62 @@ export function StaffLayout({ children, user, currentPage, onNavigate, onLogout 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const navigation = [
+  const baseNavigation = [
     {
       name: 'Dashboard',
-      href: 'staff/dashboard',
+      href: 'app/dashboard',
       icon: LayoutDashboard,
-      current: currentPage === 'staff/dashboard'
+      current: currentPage === 'app/dashboard'
     },
     {
       name: 'Update Details',
-      href: 'staff/update',
+      href: 'app/staff/profile',
       icon: User,
-      current: currentPage === 'staff/update'
+      current: currentPage === 'app/staff/profile'
     },
     {
       name: 'Salary Management',
-      href: 'staff/salary',
+      href: 'app/payroll',
       icon: DollarSign,
-      current: currentPage === 'staff/salary'
+      current: currentPage === 'app/payroll'
     },
     {
       name: 'Loan Management',
-      href: 'staff/loanmanagement',
+      href: 'app/loans/manage',
       icon: CreditCard,
-      current: currentPage === 'staff/loanmanagement'
+      current: currentPage === 'app/loans/manage'
     },
     {
       name: 'Expense Tracking',
-      href: 'staff/expensetracking',
+      href: 'app/expenses',
       icon: Receipt,
-      current: currentPage === 'staff/expensetracking'
+      current: currentPage === 'app/expenses'
     },
     {
       name: 'Matatu Management',
-      href: 'staff/matatumanagement',
+      href: 'app/vehicles/matatus',
       icon: Car,
-      current: currentPage === 'staff/matatumanagement'
+      current: currentPage === 'app/vehicles/matatus'
     },
     {
       name: 'Reports',
-      href: 'staff/reports',
+      href: 'app/reports',
       icon: FileText,
-      current: currentPage === 'staff/reports'
+      current: currentPage === 'app/reports'
     }
   ];
+
+  const navigation = [...baseNavigation];
+  const canViewTreasury = user?.role === 'Treasurer' || user?.role === 'Admin';
+
+  if (canViewTreasury) {
+    navigation.splice(2, 0, {
+      name: 'Finance Module',
+      href: 'app/remittances',
+      icon: Shield,
+      current: currentPage === 'app/remittances'
+    });
+  }
 
   const toggleSidebarCollapse = () => {
     setSidebarCollapsed(!sidebarCollapsed);

@@ -376,12 +376,21 @@ export interface AdminVehicleSummary {
   model: string | null;
   vehicleType: string | null;
   yearOfManufacture: number | null;
+  capacity: number | null;
+  chassisNumber: string | null;
+  engineNumber: string | null;
   statusCode: VehicleStatusCode;
   status: string;
   registrationStatusCode: RegistrationStatusCode;
   registrationStatus: string;
   insuranceStatusCode: 'ACTIVE' | 'EXPIRED' | 'PENDING';
   insuranceStatus: string;
+  registrationDate: string;
+  registrationExpiry: string | null;
+  insuranceExpiry: string | null;
+  insuranceProvider: string | null;
+  policyType: string | null;
+  premium: number | null;
   owner: {
     id: string;
     name: string;
@@ -403,6 +412,19 @@ export interface AdminVehicleSummary {
     outstandingLoanAmount: number;
     activeLoanCount: number;
   };
+  savingsAccounts: {
+    id: string;
+    accountType: string | null;
+    balance: number | null;
+  }[];
+  loans: {
+    id: string;
+    amount: number | null;
+    statusCode: LoanStatusCode;
+    status: string;
+    typeCode: LoanTypeCode;
+    type: string;
+  }[];
   lastPayment: {
     id: string;
     date: string;
@@ -1053,6 +1075,21 @@ export interface RolePermissionRecord {
   permissionId: string;
 }
 
+export interface StaffProfileSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  roles: AdminRole[];
+}
+
+export interface StaffProfilePermissionsResponse {
+  profile: StaffProfileSummary;
+  roles: AdminRole[];
+  effectivePermissions: string[];
+  permissionsByRole: Record<string, string[]>;
+}
+
 export async function fetchRoles(): Promise<AdminRole[]> {
   return request('/api/roles');
 }
@@ -1098,6 +1135,71 @@ export async function addRolePermission(
 
 export async function removeRolePermission(rolePermissionId: string): Promise<void> {
   await request(`/api/rolePermissions/${rolePermissionId}`, { method: 'DELETE' });
+}
+
+export async function fetchStaffProfiles(options: { includeInactive?: boolean } = {}): Promise<StaffProfileSummary[]> {
+  const params = new URLSearchParams();
+  params.set('includeRoles', 'true');
+  if (options.includeInactive) {
+    params.set('includeInactive', 'true');
+  }
+  const query = params.toString();
+  return request(`/api/staff-profiles${query ? `?${query}` : ''}`);
+}
+
+export async function fetchStaffProfile(profileId: string): Promise<StaffProfileSummary> {
+  return request(`/api/staff-profiles/${profileId}?includeRoles=true`);
+}
+
+export async function createStaffProfile(payload: {
+  name: string;
+  description?: string | null;
+  roleIds: string[];
+}): Promise<StaffProfileSummary> {
+  return request('/api/staff-profiles', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function updateStaffProfile(
+  profileId: string,
+  payload: {
+    name?: string;
+    description?: string | null;
+    isActive?: boolean;
+    roleIds?: string[];
+  }
+): Promise<StaffProfileSummary> {
+  return request(`/api/staff-profiles/${profileId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function setStaffProfileStatus(profileId: string, isActive: boolean): Promise<StaffProfileSummary> {
+  return request(`/api/staff-profiles/${profileId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ isActive })
+  });
+}
+
+export async function fetchStaffProfilePermissions(profileId: string): Promise<StaffProfilePermissionsResponse> {
+  return request(`/api/staff-profiles/${profileId}/permissions`);
+}
+
+export async function updateStaffProfilePermissions(
+  profileId: string,
+  payload: {
+    mode: 'REPLACE' | 'PATCH';
+    targetRoleIds?: string[];
+    permissions: string[] | { add?: string[]; remove?: string[] };
+  }
+): Promise<StaffProfilePermissionsResponse> {
+  return request(`/api/staff-profiles/${profileId}/permissions`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function fetchRemittanceReport(params: AdminReportQuery = {}): Promise<RemittanceReportResponse> {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { ComponentType, ReactNode, useState } from 'react';
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -30,9 +30,29 @@ interface ReportsProps {
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<ReportsLayoutProps>;
+  currentPage?: string;
 }
 
-export function Reports({ user, onNavigate, onLogout }: ReportsProps) {
+interface ReportsLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+}
+
+export function Reports({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = StaffLayout,
+  currentPage = 'staff/reports'
+}: ReportsProps) {
   const [selectedReportType, setSelectedReportType] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -169,7 +189,7 @@ export function Reports({ user, onNavigate, onLogout }: ReportsProps) {
   }, {} as Record<string, typeof reportTypes>);
 
   return (
-    <StaffLayout user={user} currentPage="staff/reports" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Header */}
         <div>
@@ -394,6 +414,6 @@ export function Reports({ user, onNavigate, onLogout }: ReportsProps) {
           </CardContent>
         </Card>
       </div>
-    </StaffLayout>
+    </LayoutComponent>
   );
 }

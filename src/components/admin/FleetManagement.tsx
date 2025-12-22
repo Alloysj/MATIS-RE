@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -22,7 +22,8 @@ import {
   Eye,
   UserPlus,
   Download,
-  Loader2
+  Loader2,
+  ExternalLink
 } from 'lucide-react';
 import {
   AdminVehicleSummary,
@@ -39,11 +40,22 @@ import {
   AdminVehicleUpdatePayload,
   AdminInsurancePaymentRequest,
   fetchAdminRoutes,
-  AdminRoute,
-  getCachedAdminFleetVehicles,
-  getCachedAdminRoutes
+  AdminRoute
 } from '../../services/admin';
 import { AvailableDriver, getAvailableDrivers } from '../../services/matatus';
+import { useAnyPermission, usePermission } from '../../context/AccessContext';
+
+interface FleetLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+}
 
 interface FleetManagementProps {
   user: {
@@ -53,6 +65,10 @@ interface FleetManagementProps {
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<FleetLayoutProps>;
+  currentPage?: string;
+  basePath?: string;
+  routesPath?: string;
 }
 
 type VehicleFormMode = 'create' | 'edit';
@@ -171,7 +187,19 @@ const routeToOption = (route: AdminRoute) => ({
   id: route.id,
   name: route.name
 });
-export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementProps) {
+export function FleetManagement({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'app/vehicles',
+  basePath = 'app/vehicles',
+  routesPath = 'app/vehicles/routes'
+}: FleetManagementProps) {
+  const canWriteVehicle = useAnyPermission(['VEHICLES:WRITE', 'VEHICLES:WRITE_SELF']);
+  const canAssignDriver = usePermission('VEHICLES:ASSIGN_DRIVER');
+  const canInsuranceWrite = usePermission('INSURANCE:WRITE');
+  const canRoutesWrite = usePermission('VEHICLES:ROUTES_WRITE');
   const [vehicles, setVehicles] = useState<AdminVehicleSummary[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState<boolean>(true);
   const [vehiclesError, setVehiclesError] = useState<string | null>(null);
@@ -379,7 +407,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
       toast.error('Owner information is not available for this vehicle.');
       return;
     }
-    onNavigate('admin/users/user_profile/' + ownerId);
+    onNavigate('app/members/profiles/' + ownerId);
   };
 
   const handleDeleteVehicle = async (vehicle: AdminVehicleSummary) => {
@@ -618,9 +646,15 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
               <TableRow key={vehicle.id}>
                 <TableCell>
                   <div>
-                    <p className="font-medium text-gray-900">{vehicle.plateNumber}</p>
+                    <button
+                      type="button"
+                      onClick={() => onNavigate(`${basePath}/${vehicle.id}`)}
+                      className="font-medium text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                    >
+                      {vehicle.plateNumber}
+                    </button>
                     <p className="text-sm text-gray-500">
-                      {[vehicle.model, vehicle.yearOfManufacture?.toString()].filter(Boolean).join(' � ')}
+                      {[vehicle.model, vehicle.yearOfManufacture?.toString()].filter(Boolean).join(' • ')}
                     </p>
                   </div>
                 </TableCell>
@@ -677,26 +711,38 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleOpenVehicleForm('edit', vehicle)}>
-                        <Edit className="h-4 w-4 mr-2" />
-                        Edit Vehicle
+                      <DropdownMenuItem onClick={() => onNavigate(`${basePath}/${vehicle.id}`)}>
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        View Details
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAssignDriver(vehicle)}>
-                        <UserPlus className="h-4 w-4 mr-2" />
-                        {vehicle.driver ? 'Change Driver' : 'Assign Driver'}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleOpenInsuranceDialog(vehicle)}>
-                        <Shield className="h-4 w-4 mr-2" />
-                        Record Insurance Payment
-                      </DropdownMenuItem>
+                      {canWriteVehicle && (
+                        <DropdownMenuItem onClick={() => handleOpenVehicleForm('edit', vehicle)}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit Vehicle
+                        </DropdownMenuItem>
+                      )}
+                      {canAssignDriver && (
+                        <DropdownMenuItem onClick={() => handleAssignDriver(vehicle)}>
+                          <UserPlus className="h-4 w-4 mr-2" />
+                          {vehicle.driver ? 'Change Driver' : 'Assign Driver'}
+                        </DropdownMenuItem>
+                      )}
+                      {canInsuranceWrite && (
+                        <DropdownMenuItem onClick={() => handleOpenInsuranceDialog(vehicle)}>
+                          <Shield className="h-4 w-4 mr-2" />
+                          Record Insurance Payment
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem onClick={() => handleViewOwner(vehicle.owner?.id ?? null)}>
                         <Eye className="h-4 w-4 mr-2" />
                         View Owner
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDeleteVehicle(vehicle)} className="text-red-600">
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete Vehicle
-                      </DropdownMenuItem>
+                      {canWriteVehicle && (
+                        <DropdownMenuItem onClick={() => handleDeleteVehicle(vehicle)} className="text-red-600">
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete Vehicle
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -719,7 +765,7 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
   );
 
   return (
-    <AdminLayout user={user} currentPage="admin/fleet" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -727,14 +773,18 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
             <p className="text-gray-600 mt-1">Manage vehicle registrations, assignments, and compliance</p>
           </div>
           <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={() => onNavigate('admin/fleet/routes')}>
-              <MapPin className="h-4 w-4 mr-2" />
-              Manage Routes
-            </Button>
-            <Button onClick={() => handleOpenVehicleForm('create')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Vehicle
-            </Button>
+            {canRoutesWrite && (
+              <Button variant="outline" onClick={() => onNavigate(routesPath)}>
+                <MapPin className="h-4 w-4 mr-2" />
+                Manage Routes
+              </Button>
+            )}
+            {canWriteVehicle && (
+              <Button onClick={() => handleOpenVehicleForm('create')}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Vehicle
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1189,6 +1239,6 @@ export function FleetManagement({ user, onNavigate, onLogout }: FleetManagementP
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }

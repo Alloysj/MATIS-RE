@@ -1,7 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
 import { createCrudRouter } from './crudRouter';
-import supabase from './supabaseClient';
 import usersRouter from './routes/users';
 import matatusRouter from './routes/matatus';
 import financeRouter from './routes/finance';
@@ -9,9 +8,12 @@ import reportsRouter from './routes/reports';
 import adminRouter from './routes/admin';
 import rolesRouter from './routes/roles';
 import staffRouter from './routes/staff';
+import staffProfilesRouter from './routes/staffProfiles';
 import swaggerUi from 'swagger-ui-express';
 import swaggerDocument from './swagger';
 import prisma from './prismaClient';
+import { authenticate } from './middleware/auth';
+import { requirePermission } from './middleware/rbac';
 
 const app = express();
 // Basic CORS handling (no extra deps needed)
@@ -56,7 +58,7 @@ const resources = [
 
 resources.forEach((name) => {
   // create URL path: plural by adding 's'
-  app.use(`/api/${name}s`, createCrudRouter(prisma, name));
+  app.use(`/api/${name}s`, authenticate, requirePermission('ADMIN:CRUD_ALL'), createCrudRouter(prisma, name));
 });
 
 // Custom optimized routers
@@ -67,15 +69,21 @@ app.use('/api/reports', reportsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/roles', rolesRouter);
 app.use('/api/staff', staffRouter);
+app.use('/api/staff-profiles', staffProfilesRouter);
 
 const port = process.env.PORT || 3000;
 
 app.get('/api/health', async (_req, res) => {
-  const { error } = await supabase.from('users').select('id').limit(1);
-  if (error) {
-    return res.status(500).json({ status: 'error', message: error.message });
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ok' });
+  } catch (error) {
+    console.error('Health check failed', error);
+    res.status(500).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Database connection failed',
+    });
   }
-  res.json({ status: 'ok' });
 });
 
 app.listen(port, () => {

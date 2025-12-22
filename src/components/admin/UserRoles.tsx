@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, Dispatch, SetStateAction } from 'react';
+import { ComponentType, ReactNode, useEffect, useMemo, useState, Dispatch, SetStateAction } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -37,6 +37,15 @@ interface UserRolesProps {
   user: { name: string; role: string; phone: string } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<UserRolesLayoutProps>;
+  currentPage?: string;
+}
+interface UserRolesLayoutProps {
+  children: ReactNode;
+  user: { name: string; role: string; phone: string } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
 }
 interface RoleWithAssignments extends AdminRole {
   permissions: string[];
@@ -50,7 +59,13 @@ const PERMISSION_CATEGORIES: AdminPermission['category'][] = [
   'System'
 ];
 
-export function UserRoles({ user, onNavigate, onLogout }: UserRolesProps) {
+export function UserRoles({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/users/roles'
+}: UserRolesProps) {
   const [roles, setRoles] = useState<RoleWithAssignments[]>([]);
   const [permissions, setPermissions] = useState<AdminPermission[]>([]);
   const [rolePermissionRecords, setRolePermissionRecords] = useState<RolePermissionRecord[]>([]);
@@ -216,15 +231,15 @@ export function UserRoles({ user, onNavigate, onLogout }: UserRolesProps) {
 
   if (loading) {
     return (
-      <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="User Roles">
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
         <div className="flex items-center justify-center h-[60vh] text-gray-500">
           Loading roles...
         </div>
-      </AdminLayout>
+      </LayoutComponent>
     );
   }
   return (
-    <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="User Roles">
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -424,7 +439,7 @@ export function UserRoles({ user, onNavigate, onLogout }: UserRolesProps) {
             )}          </DialogContent>
         </Dialog>
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }
 const SummaryCard = ({

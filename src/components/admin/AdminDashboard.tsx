@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -45,6 +45,20 @@ interface AdminDashboardProps {
     role: string;
     phone: string;
   } | null;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+  LayoutComponent?: ComponentType<AdminDashboardLayoutProps>;
+  currentPage?: string;
+}
+
+interface AdminDashboardLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
 }
@@ -111,7 +125,13 @@ const roleCategoryColors: Record<string, string> = {
   Unassigned: 'var(--hot-pink)'
 };
 
-export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardProps) {
+export function AdminDashboard({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/dashboard'
+}: AdminDashboardProps) {
   const [usersState, setUsersState] = useState<PanelState<DashboardUsersResponse>>(createInitialState);
   const [vehiclesState, setVehiclesState] = useState<PanelState<DashboardVehiclesResponse>>(createInitialState);
   const [loansState, setLoansState] = useState<PanelState<DashboardLoansResponse>>(createInitialState);
@@ -342,28 +362,28 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
       description: 'Add, edit, or approve user accounts',
       icon: Users,
       color: 'from-[var(--neon-turquoise)] to-[var(--electric-blue)]',
-      action: () => onNavigate('admin/users')
+      action: () => onNavigate('app/members')
     },
     {
       title: 'Fleet Management',
       description: 'Oversee vehicle registrations and status',
       icon: Car,
       color: 'from-[var(--neon-yellow)] to-[var(--neon-orange)]',
-      action: () => onNavigate('admin/fleet')
+      action: () => onNavigate('app/vehicles')
     },
     {
       title: 'Approve Loans',
       description: 'Review and approve loan applications',
       icon: DollarSign,
       color: 'from-[var(--neon-orange)] to-[var(--hot-pink)]',
-      action: () => onNavigate('admin/loans')
+      action: () => onNavigate('app/loans')
     },
     {
       title: 'Generate Reports',
       description: 'Create financial and operational reports',
       icon: FileText,
       color: 'from-[var(--neon-purple)] to-[var(--neon-turquoise)]',
-      action: () => onNavigate('admin/reports/users')
+      action: () => onNavigate('app/reports/users')
     }
   ];
 
@@ -405,7 +425,7 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
   );
 
   return (
-    <AdminLayout user={user} onNavigate={onNavigate} onLogout={onLogout} title="Admin Dashboard">
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Top Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -506,7 +526,7 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Quick Actions</CardTitle>
-              <Button variant="ghost" size="icon" onClick={() => onNavigate('admin/users')}>
+              <Button variant="ghost" size="icon" onClick={() => onNavigate('app/members')}>
                 <FileText className="h-4 w-4" />
               </Button>
             </div>
@@ -595,7 +615,7 @@ export function AdminDashboard({ user, onNavigate, onLogout }: AdminDashboardPro
           </CardContent>
         </Card>
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }
 

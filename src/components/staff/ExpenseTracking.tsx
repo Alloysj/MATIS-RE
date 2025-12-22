@@ -1,180 +1,358 @@
-import { useState } from 'react';
+import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { 
-  Receipt, 
-  Search, 
-  Download, 
-  DollarSign, 
-  Calendar, 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '../ui/dialog';
+import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
+import {
+  Receipt,
+  Search,
+  Download,
+  DollarSign,
+  Calendar,
   Filter,
   FileText,
   PieChart,
-  TrendingUp
+  TrendingUp,
+  Loader2,
+  Plus
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell } from 'recharts';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart as RechartsPieChart,
+  Pie,
+  Cell
+} from 'recharts';
+import { toast } from 'sonner@2.0.3';
+import { addExpenses, getExpenses } from '../../services/staff';
 
 interface ExpenseTrackingProps {
   user: {
+    id?: string;
     name: string;
     role: string;
     phone: string;
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<ExpenseTrackingLayoutProps>;
+  currentPage?: string;
 }
 
-export function ExpenseTracking({ user, onNavigate, onLogout }: ExpenseTrackingProps) {
+interface ExpenseTrackingLayoutProps {
+  children: ReactNode;
+  user: {
+    id?: string;
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
+}
+
+type ExpenseRecord = {
+  id: string;
+  category: string | null;
+  description: string | null;
+  amount: number;
+  date: string;
+  status: string;
+  vendor: string | null;
+};
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES' }).format(value);
+
+const formatDate = (value: string | Date | null | undefined) => {
+  if (!value) return 'Not recorded';
+  const date = typeof value === 'string' ? new Date(value) : value;
+  if (Number.isNaN(date?.getTime?.())) return 'Not recorded';
+  return new Intl.DateTimeFormat('en-KE', { year: 'numeric', month: 'short', day: 'numeric' }).format(date as Date);
+};
+
+const formatStatus = (status: string | null | undefined) => {
+  if (!status) return 'Unknown';
+  const normalized = status.toUpperCase();
+  switch (normalized) {
+    case 'PAID':
+      return 'Paid';
+    case 'PENDING':
+      return 'Pending';
+    case 'APPROVED':
+      return 'Approved';
+    case 'REJECTED':
+      return 'Rejected';
+    case 'FAILED':
+      return 'Failed';
+    default:
+      return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+  }
+};
+
+const downloadCsv = (filename: string, rows: string[][]) => {
+  const csvContent = rows
+    .map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+export function ExpenseTracking({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = StaffLayout,
+  currentPage = 'staff/expensetracking'
+}: ExpenseTrackingProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCategory, setSelectedCategory] = useState<'all' | string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | string>('all');
 
-  // Check if user is treasurer
-  const isTreasurer = user?.role === 'Treasurer' || user?.name === 'Admin User';
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [addingExpense, setAddingExpense] = useState(false);
+  const [newExpense, setNewExpense] = useState({
+    category: '',
+    description: '',
+    amount: '',
+    vendor: ''
+  });
 
-  // Mock data for salary expenses
-  const salaryExpenses = [
-    {
-      id: 1,
-      staffName: 'John Kamau',
-      position: 'Accountant',
-      type: 'Basic Salary',
-      amount: 45000,
-      date: '2024-06-01',
-      status: 'Paid'
+  const resetAddExpenseForm = useCallback(() => {
+    setNewExpense({
+      category: '',
+      description: '',
+      amount: '',
+      vendor: ''
+    });
+  }, []);
+
+  const handleAddDialogChange = useCallback(
+    (open: boolean) => {
+      setAddDialogOpen(open);
+      if (!open) {
+        resetAddExpenseForm();
+        setAddingExpense(false);
+      }
     },
-    {
-      id: 2,
-      staffName: 'Mary Wanjiku',
-      position: 'Secretary',
-      type: 'Basic Salary',
-      amount: 35000,
-      date: '2024-06-01',
-      status: 'Paid'
-    },
-    {
-      id: 3,
-      staffName: 'Peter Mwangi',
-      position: 'Field Officer',
-      type: 'Salary Advance',
-      amount: 15000,
-      date: '2024-06-15',
-      status: 'Pending'
+    [resetAddExpenseForm]
+  );
+
+  const loadExpenses = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await getExpenses();
+      const normalized: ExpenseRecord[] = Array.isArray(response)
+        ? response.map((item: any) => ({
+            id: item.id ?? crypto.randomUUID(),
+            category: item.category ?? 'General',
+            description: item.description ?? '',
+            amount: Number(item.amount) || 0,
+            date: item.date ?? item.createdAt ?? new Date().toISOString(),
+            status: item.status ?? 'PENDING',
+            vendor: item.vendor ?? null
+          }))
+        : [];
+      setExpenses(normalized);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load expenses.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
     }
-  ];
+  }, []);
 
-  // Mock data for office expenses
-  const officeExpenses = [
-    {
-      id: 1,
-      category: 'Rent',
-      description: 'Office rent for June 2024',
-      amount: 25000,
-      date: '2024-06-01',
-      status: 'Paid',
-      vendor: 'Property Management Ltd'
-    },
-    {
-      id: 2,
-      category: 'Utilities',
-      description: 'Electricity bill',
-      amount: 8500,
-      date: '2024-06-05',
-      status: 'Paid',
-      vendor: 'Kenya Power'
-    },
-    {
-      id: 3,
-      category: 'Stationery',
-      description: 'Office supplies',
-      amount: 3200,
-      date: '2024-06-10',
-      status: 'Paid',
-      vendor: 'Office Mart'
-    },
-    {
-      id: 4,
-      category: 'Internet',
-      description: 'Internet & phone services',
-      amount: 4500,
-      date: '2024-06-01',
-      status: 'Paid',
-      vendor: 'Safaricom Business'
-    },
-    {
-      id: 5,
-      category: 'Maintenance',
-      description: 'Office cleaning services',
-      amount: 6000,
-      date: '2024-06-15',
-      status: 'Pending',
-      vendor: 'Clean Pro Services'
+  useEffect(() => {
+    loadExpenses();
+  }, [loadExpenses]);
+
+  const handleAddExpense = async () => {
+    const description = newExpense.description.trim();
+    const category = newExpense.category.trim();
+    const vendor = newExpense.vendor.trim();
+    const amountValue = Number(newExpense.amount);
+
+    if (!description) {
+      toast.error('Please provide a description for the expense.');
+      return;
     }
-  ];
 
-  // Mock data for budget vs actuals (Treasurer view)
-  const budgetData = [
-    { category: 'Salaries', budget: 150000, actual: 130000 },
-    { category: 'Rent', budget: 30000, actual: 25000 },
-    { category: 'Utilities', budget: 12000, actual: 8500 },
-    { category: 'Maintenance', budget: 8000, actual: 6000 },
-    { category: 'Stationery', budget: 5000, actual: 3200 },
-    { category: 'Internet', budget: 5000, actual: 4500 }
-  ];
+    if (!Number.isFinite(amountValue) || amountValue <= 0) {
+      toast.error('Enter a valid amount greater than zero.');
+      return;
+    }
 
-  // Expense distribution for pie chart
-  const expenseDistribution = [
-    { name: 'Salaries', value: 130000, color: '#14F195' },
-    { name: 'Rent', value: 25000, color: '#FFE838' },
-    { name: 'Utilities', value: 8500, color: '#FF6B35' },
-    { name: 'Maintenance', value: 6000, color: '#9945FF' },
-    { name: 'Others', value: 7700, color: '#00D4FF' }
-  ];
+    try {
+      setAddingExpense(true);
+      await addExpenses({
+        description,
+        amount: amountValue,
+        category: category || undefined,
+        vendor: vendor || undefined
+      });
+      toast.success('Expense recorded successfully.');
+      handleAddDialogChange(false);
+      await loadExpenses();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to record expense.';
+      toast.error(message);
+    } finally {
+      setAddingExpense(false);
+    }
+  };
+  const filteredExpenses = useMemo(() => {
+    return expenses.filter((expense) => {
+      const matchesCategory =
+        selectedCategory === 'all' ||
+        (expense.category ?? 'General').toLowerCase() === selectedCategory.toLowerCase();
+      const matchesStatus =
+        statusFilter === 'all' ||
+        (expense.status ?? 'PENDING').toLowerCase() === statusFilter.toLowerCase();
+      const term = searchTerm.trim().toLowerCase();
+      const matchesSearch =
+        !term ||
+        (expense.description ?? '').toLowerCase().includes(term) ||
+        (expense.vendor ?? '').toLowerCase().includes(term) ||
+        (expense.category ?? '').toLowerCase().includes(term);
+      return matchesCategory && matchesStatus && matchesSearch;
+    });
+  }, [expenses, searchTerm, selectedCategory, statusFilter]);
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'Paid':
-        return <Badge className="bg-green-100 text-green-800">Paid</Badge>;
-      case 'Pending':
-        return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
-      case 'Overdue':
-        return <Badge className="bg-red-100 text-red-800">Overdue</Badge>;
+  const totalsByCategory = useMemo(() => {
+    return filteredExpenses.reduce<Record<string, number>>((acc, expense) => {
+      const key = (expense.category ?? 'General').toUpperCase();
+      acc[key] = (acc[key] ?? 0) + expense.amount;
+      return acc;
+    }, {});
+  }, [filteredExpenses]);
+
+  const pieData = useMemo(
+    () =>
+      Object.entries(totalsByCategory).map(([name, value], index) => ({
+        name,
+        value,
+        color: ['#14F195', '#FFE838', '#FF6B35', '#9945FF', '#00D4FF'][index % 5]
+      })),
+    [totalsByCategory]
+  );
+
+  const monthlyExpenses = useMemo(() => {
+    const bucket = new Map<string, number>();
+    filteredExpenses.forEach((expense) => {
+      const monthLabel = formatDate(expense.date).slice(0, 8);
+      bucket.set(monthLabel, (bucket.get(monthLabel) ?? 0) + expense.amount);
+    });
+    return Array.from(bucket.entries()).map(([month, total]) => ({ month, total }));
+  }, [filteredExpenses]);
+
+  const totalExpenses = useMemo(
+    () => filteredExpenses.reduce((sum, expense) => sum + expense.amount, 0),
+    [filteredExpenses]
+  );
+
+  const handleExport = (format: 'csv') => {
+    if (!expenses.length) {
+      toast.info('No expenses available to export.');
+      return;
+    }
+
+    if (format === 'csv') {
+      const rows = [
+        ['ID', 'Date', 'Category', 'Description', 'Amount', 'Status', 'Vendor'],
+        ...expenses.map((expense) => [
+          expense.id,
+          formatDate(expense.date),
+          expense.category ?? 'General',
+          expense.description ?? '',
+          expense.amount.toString(),
+          expense.status ?? 'PENDING',
+          expense.vendor ?? ''
+        ])
+      ];
+      downloadCsv(`expenses_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+      toast.success('Expenses exported as CSV.');
+    }
+  };
+
+  const getStatusBadge = (status: string | null | undefined) => {
+    const normalized = (status ?? '').toUpperCase();
+    const label = formatStatus(status);
+    switch (normalized) {
+      case 'PAID':
+        return <Badge className="bg-green-100 text-green-800">{label}</Badge>;
+      case 'PENDING':
+        return <Badge className="bg-yellow-100 text-yellow-800">{label}</Badge>;
+      case 'APPROVED':
+        return <Badge className="bg-blue-100 text-blue-800">{label}</Badge>;
+      case 'REJECTED':
+      case 'FAILED':
+        return <Badge className="bg-red-100 text-red-800">{label}</Badge>;
       default:
-        return <Badge variant="secondary">{status}</Badge>;
+        return <Badge variant="secondary">{label}</Badge>;
     }
   };
 
-  const handleExport = (format: string) => {
-    // Simulate export functionality
-    console.log(`Exporting data in ${format} format`);
-  };
-
-  const RADIAN = Math.PI / 180;
-  const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
-    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-
+  if (loading) {
     return (
-      <text 
-        x={x} 
-        y={y} 
-        fill="white" 
-        textAnchor={x > cx ? 'start' : 'end'} 
-        dominantBaseline="central"
-        fontSize="12"
-        fontWeight="bold"
-      >
-        {`${(percent * 100).toFixed(0)}%`}
-      </text>
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
+        </div>
+      </LayoutComponent>
     );
-  };
+  }
+
+  if (error) {
+    return (
+      <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
+        <Card className="max-w-xl mx-auto mt-24">
+          <CardHeader>
+            <CardTitle>Unable to load expenses</CardTitle>
+            <CardDescription>{error}</CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-end space-x-2">
+            <Button variant="outline" onClick={() => onNavigate('app/dashboard')}>
+              Back to Dashboard
+            </Button>
+            <Button onClick={loadExpenses}>Retry</Button>
+          </CardContent>
+        </Card>
+      </LayoutComponent>
+    );
+  }
 
   return (
-    <StaffLayout user={user} currentPage="staff/expensetracking" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -183,253 +361,260 @@ export function ExpenseTracking({ user, onNavigate, onLogout }: ExpenseTrackingP
             <p className="text-gray-600">Track SACCO salary and office expenses</p>
           </div>
           <div className="flex space-x-2">
-            <Button 
-              variant="outline" 
+            <Button
+              onClick={() => handleAddDialogChange(true)}
+              className="bg-[var(--neon-purple)] text-white hover:bg-[var(--neon-purple)]/90"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Record Expense
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => handleExport('csv')}
               className="border-[var(--neon-turquoise)] text-[var(--neon-turquoise)] hover:bg-[var(--neon-turquoise)]/10"
             >
               <Download className="w-4 h-4 mr-2" />
-              CSV
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={() => handleExport('pdf')}
-              className="border-[var(--neon-orange)] text-[var(--neon-orange)] hover:bg-[var(--neon-orange)]/10"
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              PDF
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={() => handleExport('excel')}
-              className="border-[var(--neon-purple)] text-[var(--neon-purple)] hover:bg-[var(--neon-purple)]/10"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Excel
+              Export CSV
             </Button>
           </div>
         </div>
 
-        {/* Search and Filter Bar */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row gap-4">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+        <Dialog open={addDialogOpen} onOpenChange={handleAddDialogChange}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Record Expense</DialogTitle>
+              <DialogDescription>Capture a new expense to keep the SACCO ledger up to date.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="expenseCategory">Category</Label>
                   <Input
-                    placeholder="Search expenses..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
+                    id="expenseCategory"
+                    value={newExpense.category}
+                    onChange={(e) => setNewExpense((prev) => ({ ...prev, category: e.target.value }))}
+                    placeholder="e.g. Operations"
+                    disabled={addingExpense}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="expenseAmount">Amount (KES)</Label>
+                  <Input
+                    id="expenseAmount"
+                    type="number"
+                    min="0"
+                    value={newExpense.amount}
+                    onChange={(e) => setNewExpense((prev) => ({ ...prev, amount: e.target.value }))}
+                    placeholder="0.00"
+                    disabled={addingExpense}
                   />
                 </div>
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm">
-                  <Filter className="w-4 h-4 mr-2" />
-                  Filter
-                </Button>
-                <Button variant="outline" size="sm">
-                  <Calendar className="w-4 h-4 mr-2" />
-                  Date Range
-                </Button>
+              <div className="space-y-2">
+                <Label htmlFor="expenseVendor">Vendor / Payee</Label>
+                <Input
+                  id="expenseVendor"
+                  value={newExpense.vendor}
+                  onChange={(e) => setNewExpense((prev) => ({ ...prev, vendor: e.target.value }))}
+                  placeholder="Who was paid?"
+                  disabled={addingExpense}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="expenseDescription">Description</Label>
+                <Textarea
+                  id="expenseDescription"
+                  rows={4}
+                  value={newExpense.description}
+                  onChange={(e) => setNewExpense((prev) => ({ ...prev, description: e.target.value }))}
+                  placeholder="Add details about the expense"
+                  disabled={addingExpense}
+                />
+              </div>
+            </div>
+            <DialogFooter className="space-x-2 pt-2">
+              <Button variant="outline" onClick={() => handleAddDialogChange(false)} disabled={addingExpense}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddExpense} disabled={addingExpense}>
+                {addingExpense && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Save Expense
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Filters */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="flex items-center border rounded-lg px-3 py-2">
+                <Search className="w-4 h-4 text-gray-500 mr-2" />
+                <Input
+                  placeholder="Search description, vendor, category..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="border-0 shadow-none focus-visible:ring-0"
+                />
+              </div>
+              <div className="flex items-center border rounded-lg px-3 py-2">
+                <Filter className="w-4 h-4 text-gray-500 mr-2" />
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full bg-transparent text-sm focus:outline-none"
+                >
+                  <option value="all">All Categories</option>
+                  {Array.from(new Set(expenses.map((expense) => expense.category ?? 'General'))).map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center border rounded-lg px-3 py-2">
+                <Badge className="mr-2 bg-[var(--neon-orange)]/20 text-[var(--neon-orange)]">Status</Badge>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full bg-transparent text-sm focus:outline-none"
+                >
+                  <option value="all">All</option>
+                  {Array.from(new Set(expenses.map((expense) => expense.status ?? 'PENDING'))).map((status) => (
+                    <option key={status} value={status}>
+                      {formatStatus(status)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center border rounded-lg px-3 py-2 justify-between">
+                <div>
+                  <p className="text-xs text-gray-500">Total Spend</p>
+                  <p className="text-sm font-semibold text-gray-900">{formatCurrency(totalExpenses)}</p>
+                </div>
+                <DollarSign className="w-5 h-5 text-[var(--neon-turquoise)]" />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Expense Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <Card className="border-l-4 border-[var(--neon-turquoise)]">
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <DollarSign className="h-8 w-8 text-[var(--neon-turquoise)]" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Expenses</p>
-                  <p className="text-2xl font-bold text-gray-900">KES 177.2K</p>
-                </div>
+        {/* Analytics */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Monthly Expenses</CardTitle>
+              <CardDescription>Trend across recent recorded months</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                {monthlyExpenses.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={monthlyExpenses}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <Tooltip formatter={(value: number) => [formatCurrency(value), 'Total']} />
+                      <Bar dataKey="total" fill="var(--neon-turquoise)" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-sm text-gray-500">
+                    Not enough data to display a trend.
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
-
-          <Card className="border-l-4 border-[var(--neon-yellow)]">
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <Receipt className="h-8 w-8 text-[var(--neon-orange)]" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Salary Expenses</p>
-                  <p className="text-2xl font-bold text-gray-900">KES 130K</p>
-                </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Expense Distribution</CardTitle>
+              <CardDescription>Breakdown by category</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64">
+                {pieData.length ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsPieChart>
+                      <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                        {pieData.map((entry, index) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number, name: string) => [formatCurrency(value), name]} />
+                    </RechartsPieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-sm text-gray-500">
+                    No expenses recorded for the selected filters.
+                  </div>
+                )}
               </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-[var(--neon-purple)]">
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <Receipt className="h-8 w-8 text-[var(--neon-purple)]" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Office Expenses</p>
-                  <p className="text-2xl font-bold text-gray-900">KES 47.2K</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-[var(--neon-orange)]">
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <TrendingUp className="h-8 w-8 text-[var(--neon-orange)]" />
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Monthly Growth</p>
-                  <p className="text-2xl font-bold text-gray-900">+8.5%</p>
-                </div>
+              <div className="flex flex-wrap gap-3 mt-4">
+                {pieData.map((item) => (
+                  <div key={item.name} className="flex items-center text-sm text-gray-600">
+                    <span className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: item.color }} />
+                    {item.name}
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Charts Row */}
-        {isTreasurer && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Budget vs Actuals */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Budget vs Actuals</CardTitle>
-                <CardDescription>Comparison of budgeted vs actual expenses</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={budgetData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="category" />
-                      <YAxis />
-                      <Tooltip formatter={(value) => [`KES ${value.toLocaleString()}`, '']} />
-                      <Bar dataKey="budget" fill="var(--neon-turquoise)" name="Budget" />
-                      <Bar dataKey="actual" fill="var(--neon-orange)" name="Actual" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Expense Distribution */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Expense Distribution</CardTitle>
-                <CardDescription>Breakdown of expenses by category</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-80">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsPieChart>
-                      <Pie
-                        data={expenseDistribution}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={renderCustomizedLabel}
-                        outerRadius={100}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {expenseDistribution.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => [`KES ${value.toLocaleString()}`, '']} />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex justify-center flex-wrap gap-4 mt-4">
-                  {expenseDistribution.map((item) => (
-                    <div key={item.name} className="flex items-center">
-                      <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: item.color }}></div>
-                      <span className="text-sm text-gray-600">{item.name}</span>
-                    </div>
+        {/* Expenses Table */}
+        <Card className="border-l-4 border-[var(--neon-purple)]">
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Receipt className="h-5 w-5 text-[var(--neon-purple)]" />
+              <span>Expense Log</span>
+            </CardTitle>
+            <CardDescription>Detailed list of recorded expenses</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Description</TableHead>
+                    <TableHead>Vendor</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredExpenses.map((expense) => (
+                    <TableRow key={expense.id}>
+                      <TableCell className="text-gray-600">{formatDate(expense.date)}</TableCell>
+                      <TableCell>{expense.category ?? 'General'}</TableCell>
+                      <TableCell className="text-sm text-gray-600">
+                        {expense.description ?? 'No description'}
+                      </TableCell>
+                      <TableCell className="text-sm text-gray-500">
+                        {expense.vendor ?? 'Not specified'}
+                      </TableCell>
+                      <TableCell className="font-semibold text-gray-900">
+                        {formatCurrency(expense.amount)}
+                      </TableCell>
+                      <TableCell>{getStatusBadge(expense.status)}</TableCell>
+                    </TableRow>
                   ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-
-        {/* Salary Expenses Table */}
-        <Card className="border-l-4 border-[var(--neon-turquoise)]">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <DollarSign className="h-5 w-5 text-[var(--neon-turquoise)]" />
-              <span>Salary & Advance Expenses</span>
-            </CardTitle>
-            <CardDescription>Staff salary payments and advance disbursements</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Staff Member</TableHead>
-                  <TableHead>Position</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {salaryExpenses.map((expense) => (
-                  <TableRow key={expense.id}>
-                    <TableCell className="font-medium">{expense.staffName}</TableCell>
-                    <TableCell>{expense.position}</TableCell>
-                    <TableCell>{expense.type}</TableCell>
-                    <TableCell>KES {expense.amount.toLocaleString()}</TableCell>
-                    <TableCell>{expense.date}</TableCell>
-                    <TableCell>{getStatusBadge(expense.status)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        {/* Office Expenses Table */}
-        <Card className="border-l-4 border-[var(--neon-orange)]">
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Receipt className="h-5 w-5 text-[var(--neon-orange)]" />
-              <span>Office Expenses</span>
-            </CardTitle>
-            <CardDescription>Rent, utilities, maintenance, and other office expenses</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Vendor</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {officeExpenses.map((expense) => (
-                  <TableRow key={expense.id}>
-                    <TableCell className="font-medium">{expense.category}</TableCell>
-                    <TableCell>{expense.description}</TableCell>
-                    <TableCell>{expense.vendor}</TableCell>
-                    <TableCell>KES {expense.amount.toLocaleString()}</TableCell>
-                    <TableCell>{expense.date}</TableCell>
-                    <TableCell>{getStatusBadge(expense.status)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                  {!filteredExpenses.length && (
+                    <TableRow>
+                      <TableCell colSpan={6}>
+                        <div className="text-center text-sm text-gray-500 py-6">
+                          No expenses match the current filters.
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       </div>
-    </StaffLayout>
+    </LayoutComponent>
   );
 }

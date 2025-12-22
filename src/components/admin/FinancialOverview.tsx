@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -24,6 +24,20 @@ interface FinancialOverviewProps {
   } | null;
   onNavigate: (page: string) => void;
   onLogout: () => void;
+  LayoutComponent?: ComponentType<FinancialLayoutProps>;
+  currentPage?: string;
+}
+
+interface FinancialLayoutProps {
+  children: ReactNode;
+  user: {
+    name: string;
+    role: string;
+    phone: string;
+  } | null;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  onLogout: () => void;
 }
 
 const normalizeSavingsTypeKey = (type: string | null | undefined) => type ?? 'UNSPECIFIED';
@@ -42,7 +56,13 @@ const labelForSavingsType = (key: string) => {
   return toTitleCase(key.replace(/[_-]/g, ' '));
 };
 
-export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverviewProps) {
+export function FinancialOverview({
+  user,
+  onNavigate,
+  onLogout,
+  LayoutComponent = AdminLayout,
+  currentPage = 'admin/financial-overview'
+}: FinancialOverviewProps) {
   const [activeTab, setActiveTab] = useState('loans');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -305,7 +325,7 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
   );
 
   return (
-    <AdminLayout user={user} currentPage="admin/financial-overview" onNavigate={onNavigate} onLogout={onLogout}>
+    <LayoutComponent user={user} currentPage={currentPage} onNavigate={onNavigate} onLogout={onLogout}>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Financial Overview</h1>
@@ -465,7 +485,7 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
               <TabsContent value="loans" className="mt-6">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="font-semibold text-gray-900">Recent Loan Activity</h3>
-                  <Button variant="outline" onClick={() => onNavigate('admin/loans')}>
+                  <Button variant="outline" onClick={() => onNavigate('app/loans')}>
                     View All Loans
                   </Button>
                 </div>
@@ -538,7 +558,7 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button variant="outline" onClick={() => onNavigate('admin/savings')}>
+                    <Button variant="outline" onClick={() => onNavigate('app/insurance')}>
                       View All Accounts
                     </Button>
                   </div>
@@ -592,7 +612,7 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
                                   if (typeof window !== 'undefined') {
                                     sessionStorage.setItem('financialReports.accountId', account.id);
                                   }
-                                  onNavigate('admin/reports/financials');
+                                  onNavigate('app/reports/financials');
                                 }}
                               >
                                 View Reports
@@ -607,7 +627,7 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
               <TabsContent value="insurance" className="mt-6">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="font-semibold text-gray-900">Recent Insurance Activity</h3>
-                  <Button variant="outline" onClick={() => onNavigate('admin/insurance')}>
+                  <Button variant="outline" onClick={() => onNavigate('app/insurance')}>
                     View All Policies
                   </Button>
                 </div>
@@ -664,6 +684,6 @@ export function FinancialOverview({ user, onNavigate, onLogout }: FinancialOverv
           </CardContent>
         </Card>
       </div>
-    </AdminLayout>
+    </LayoutComponent>
   );
 }
