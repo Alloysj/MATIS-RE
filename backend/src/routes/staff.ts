@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { SalaryStatus, SalaryAdvanceStatus, ExpenseStatus } from '@prisma/client';
+import { SalaryStatus, SalaryAdvanceStatus, ExpenseStatus, UserType } from '@prisma/client';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { requireOwnership, requirePermission } from '../middleware/rbac';
 import prisma from '../prismaClient';
@@ -14,29 +14,54 @@ const requireExpensesRead = requirePermission('EXPENSES:READ');
 const requireExpensesWrite = requirePermission('EXPENSES:WRITE');
 const requireFinanceView = requirePermission('FINANCE:VIEW');
 
-const mapProfileRow = (row: any) => ({
-  id: String(row.id),
-  userId: String(row.user_id),
-  name: [row.first_name, row.last_name].filter(Boolean).join(' ').trim(),
-  email: row.email ?? null,
-  phone: row.phone ?? null,
-  staffPosition: row.staff_position ?? null,
-  bankName: row.bank_name ?? null,
-  accountNumber: row.account_number ?? null,
-  nhifNumber: row.nhif_number ?? null,
-  nssfNumber: row.nssf_number ?? null,
-  basicSalary: Number(row.basic_salary ?? 0),
-  hireDate: row.hire_date ? new Date(row.hire_date).toISOString().slice(0, 10) : null,
-  createdAt: row.created_at ?? null,
-  latestSalary: row.latest_salary_id
+type StaffProfilePayload = {
+  id: string;
+  userId: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  staffPosition: string | null;
+  bankName: string | null;
+  accountNumber: string | null;
+  nhifNumber: string | null;
+  nssfNumber: string | null;
+  basicSalary: number;
+  hireDate: string | null;
+  createdAt: Date | null;
+  latestSalary: {
+    id: string;
+    allowances: number;
+    nhif: number;
+    nssf: number;
+    netSalary: number;
+    payDate: Date | null;
+    status: string;
+  } | null;
+};
+
+const mapProfile = (payload: StaffProfilePayload) => ({
+  id: payload.id,
+  userId: payload.userId,
+  name: payload.name,
+  email: payload.email,
+  phone: payload.phone,
+  staffPosition: payload.staffPosition,
+  bankName: payload.bankName,
+  accountNumber: payload.accountNumber,
+  nhifNumber: payload.nhifNumber,
+  nssfNumber: payload.nssfNumber,
+  basicSalary: payload.basicSalary,
+  hireDate: payload.hireDate,
+  createdAt: payload.createdAt,
+  latestSalary: payload.latestSalary
     ? {
-        id: String(row.latest_salary_id),
-        allowances: Number(row.latest_allowances ?? 0),
-        nhif: Number(row.latest_nhif ?? 0),
-        nssf: Number(row.latest_nssf ?? 0),
-        netSalary: Number(row.latest_net_salary ?? 0),
-        payDate: row.latest_pay_date,
-        status: row.latest_status
+        id: payload.latestSalary.id,
+        allowances: payload.latestSalary.allowances,
+        nhif: payload.latestSalary.nhif,
+        nssf: payload.latestSalary.nssf,
+        netSalary: payload.latestSalary.netSalary,
+        payDate: payload.latestSalary.payDate,
+        status: payload.latestSalary.status
       }
     : null
 });
@@ -268,95 +293,141 @@ router.get('/reports/financial', authenticate, requireFinanceView, async (_req, 
 
 // List staff profiles with latest salary entry (admin use)
 router.get('/profiles', authenticate, requirePayrollRead, async (_req, res) => {
-  const rows = await prisma.$queryRaw<
-    any[]
-  >`SELECT sp.id,
-           sp.user_id,
-           sp.staff_position,
-           sp.bank_name,
-           sp.account_number,
-           sp.nhif_number,
-           sp.nssf_number,
-           sp.basic_salary,
-           sp.hire_date,
-           sp.created_at,
-           u.first_name,
-           u.last_name,
-           u.email,
-           u.phone,
-           s.id          AS latest_salary_id,
-           s.allowances  AS latest_allowances,
-           s.nhif        AS latest_nhif,
-           s.nssf        AS latest_nssf,
-           s.net_salary  AS latest_net_salary,
-           s.pay_date    AS latest_pay_date,
-           s.status      AS latest_status
-    FROM staff_profiles sp
-    JOIN users u ON u.id = sp.user_id
-    LEFT JOIN LATERAL (
-      SELECT id, allowances, nhif, nssf, net_salary, pay_date, status
-      FROM staff_salaries ss
-      WHERE ss.staff_profile_id = sp.id
-      ORDER BY ss.pay_date DESC NULLS LAST, ss.created_at DESC
-      LIMIT 1
-    ) s ON TRUE
-    ORDER BY u.first_name, u.last_name`;
+  const staffUsers = await prisma.user.findMany({
+    where: { userType: UserType.STAFF },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      profileCategory: true,
+      registrationDate: true,
+      createdAt: true
+    },
+    orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }]
+  });
 
-  res.json(rows.map(mapProfileRow));
+  const staffIds = staffUsers.map((user) => user.id);
+  const salaryRows = staffIds.length
+    ? await prisma.staffSalary.findMany({
+        where: { staffId: { in: staffIds } },
+        orderBy: [{ payDate: 'desc' }, { createdAt: 'desc' }]
+      })
+    : [];
+
+  const latestPayByStaff = new Map<string, typeof salaryRows[number]>();
+  const profileByStaff = new Map<string, typeof salaryRows[number]>();
+  salaryRows.forEach((row) => {
+    if (row.payDate && !latestPayByStaff.has(row.staffId)) {
+      latestPayByStaff.set(row.staffId, row);
+    }
+    if (!row.payDate && !profileByStaff.has(row.staffId)) {
+      profileByStaff.set(row.staffId, row);
+    }
+  });
+
+  const result = staffUsers.map((user) => {
+    const profileRecord = profileByStaff.get(user.id) ?? latestPayByStaff.get(user.id) ?? null;
+    const latestPay = latestPayByStaff.get(user.id) ?? null;
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+    return mapProfile({
+      id: user.id,
+      userId: user.id,
+      name,
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+      staffPosition: user.profileCategory ?? null,
+      bankName: profileRecord?.bankName ?? null,
+      accountNumber: profileRecord?.accountNumber ?? null,
+      nhifNumber: null,
+      nssfNumber: null,
+      basicSalary: Number(profileRecord?.basicSalary ?? 0),
+      hireDate: user.registrationDate ? user.registrationDate.toISOString().slice(0, 10) : null,
+      createdAt: user.createdAt ?? null,
+      latestSalary: latestPay
+        ? {
+            id: String(latestPay.id),
+            allowances: Number(latestPay.allowances ?? 0),
+            nhif: Number(latestPay.nhif ?? 0),
+            nssf: Number(latestPay.nssf ?? 0),
+            netSalary: Number(latestPay.netSalary ?? 0),
+            payDate: latestPay.payDate ?? null,
+            status: latestPay.status
+          }
+        : null
+    });
+  });
+
+  res.json(result);
 });
 
 // Get a single staff profile with salary history
 router.get('/profiles/:profileId', authenticate, requirePayrollRead, async (req, res) => {
   const { profileId } = req.params;
-  const [profileRow] = await prisma.$queryRaw<
-    any[]
-  >`SELECT sp.id,
-           sp.user_id,
-           sp.staff_position,
-           sp.bank_name,
-           sp.account_number,
-           sp.nhif_number,
-           sp.nssf_number,
-           sp.basic_salary,
-           sp.hire_date,
-           sp.created_at,
-           u.first_name,
-           u.last_name,
-           u.email,
-           u.phone
-    FROM staff_profiles sp
-    JOIN users u ON u.id = sp.user_id
-    WHERE sp.id = ${profileId}`;
+  const user = await prisma.user.findUnique({
+    where: { id: profileId },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      profileCategory: true,
+      registrationDate: true,
+      createdAt: true
+    }
+  });
 
-  if (!profileRow) {
+  if (!user) {
     return res.status(404).json({ message: 'Staff profile not found' });
   }
 
-  const salaryRows = await prisma.$queryRaw<
-    any[]
-  >`SELECT id,
-           allowances,
-           nhif,
-           nssf,
-           net_salary,
-           pay_date,
-           status,
-           created_at
-    FROM staff_salaries
-    WHERE staff_profile_id = ${profileId}
-    ORDER BY pay_date DESC NULLS LAST, created_at DESC`;
+  const salaryRows = await prisma.staffSalary.findMany({
+    where: { staffId: profileId },
+    orderBy: [{ payDate: 'desc' }, { createdAt: 'desc' }]
+  });
+
+  const profileRecord = salaryRows.find((row) => !row.payDate) ?? salaryRows[0] ?? null;
+  const latestPay = salaryRows.find((row) => row.payDate) ?? null;
+  const name = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
 
   res.json({
-    ...mapProfileRow(profileRow),
+    ...mapProfile({
+      id: user.id,
+      userId: user.id,
+      name,
+      email: user.email ?? null,
+      phone: user.phone ?? null,
+      staffPosition: user.profileCategory ?? null,
+      bankName: profileRecord?.bankName ?? null,
+      accountNumber: profileRecord?.accountNumber ?? null,
+      nhifNumber: null,
+      nssfNumber: null,
+      basicSalary: Number(profileRecord?.basicSalary ?? 0),
+      hireDate: user.registrationDate ? user.registrationDate.toISOString().slice(0, 10) : null,
+      createdAt: user.createdAt ?? null,
+      latestSalary: latestPay
+        ? {
+            id: String(latestPay.id),
+            allowances: Number(latestPay.allowances ?? 0),
+            nhif: Number(latestPay.nhif ?? 0),
+            nssf: Number(latestPay.nssf ?? 0),
+            netSalary: Number(latestPay.netSalary ?? 0),
+            payDate: latestPay.payDate ?? null,
+            status: latestPay.status
+          }
+        : null
+    }),
     salaryHistory: salaryRows.map((row) => ({
       id: String(row.id),
       allowances: Number(row.allowances ?? 0),
       nhif: Number(row.nhif ?? 0),
       nssf: Number(row.nssf ?? 0),
-      netSalary: Number(row.net_salary ?? 0),
-      payDate: row.pay_date,
+      netSalary: Number(row.netSalary ?? 0),
+      payDate: row.payDate ?? null,
       status: row.status,
-      createdAt: row.created_at
+      createdAt: row.createdAt
     }))
   });
 });
@@ -366,40 +437,106 @@ router.put('/profiles/:profileId', authenticate, requirePayrollWrite, async (req
   const { profileId } = req.params;
   const { staffPosition, bankName, accountNumber, nhifNumber, nssfNumber, basicSalary } = req.body;
 
-  const updated = await prisma.$executeRaw`
-    UPDATE staff_profiles
-    SET staff_position = COALESCE(${staffPosition}, staff_position),
-        bank_name = COALESCE(${bankName}, bank_name),
-        account_number = COALESCE(${accountNumber}, account_number),
-        nhif_number = COALESCE(${nhifNumber}, nhif_number),
-        nssf_number = COALESCE(${nssfNumber}, nssf_number),
-        basic_salary = COALESCE(${basicSalary}::numeric, basic_salary),
-        updated_at = NOW()
-    WHERE id = ${profileId}`;
+  const user = await prisma.user.findUnique({
+    where: { id: profileId },
+    select: { id: true }
+  });
 
-  if (!updated) {
+  if (!user) {
     return res.status(404).json({ message: 'Staff profile not found or not updated' });
   }
 
-  const [row] = await prisma.$queryRaw<any[]>`SELECT sp.id,
-           sp.user_id,
-           sp.staff_position,
-           sp.bank_name,
-           sp.account_number,
-           sp.nhif_number,
-           sp.nssf_number,
-           sp.basic_salary,
-           sp.hire_date,
-           sp.created_at,
-           u.first_name,
-           u.last_name,
-           u.email,
-           u.phone
-    FROM staff_profiles sp
-    JOIN users u ON u.id = sp.user_id
-    WHERE sp.id = ${profileId}`;
+  if (staffPosition) {
+    await prisma.user.update({
+      where: { id: profileId },
+      data: { profileCategory: staffPosition }
+    });
+  }
 
-  res.json(mapProfileRow(row));
+  const profileRecord = await prisma.staffSalary.findFirst({
+    where: { staffId: profileId, payDate: null },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  const salaryBase = Number(basicSalary ?? profileRecord?.basicSalary ?? 0);
+  const profilePayload = {
+    basicSalary: salaryBase,
+    netSalary: salaryBase,
+    bankName: bankName ?? profileRecord?.bankName ?? null,
+    accountNumber: accountNumber ?? profileRecord?.accountNumber ?? null
+  };
+
+  if (profileRecord) {
+    await prisma.staffSalary.update({
+      where: { id: profileRecord.id },
+      data: profilePayload
+    });
+  } else {
+    await prisma.staffSalary.create({
+      data: {
+        staffId: profileId,
+        basicSalary: salaryBase,
+        netSalary: salaryBase,
+        bankName: profilePayload.bankName,
+        accountNumber: profilePayload.accountNumber,
+        status: SalaryStatus.PENDING
+      }
+    });
+  }
+
+  const refreshedUser = await prisma.user.findUnique({
+    where: { id: profileId },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      profileCategory: true,
+      registrationDate: true,
+      createdAt: true
+    }
+  });
+
+  if (!refreshedUser) {
+    return res.status(404).json({ message: 'Staff profile not found or not updated' });
+  }
+
+  const salaryRows = await prisma.staffSalary.findMany({
+    where: { staffId: profileId },
+    orderBy: [{ payDate: 'desc' }, { createdAt: 'desc' }]
+  });
+
+  const updatedProfile = salaryRows.find((row) => !row.payDate) ?? salaryRows[0] ?? null;
+  const latestPay = salaryRows.find((row) => row.payDate) ?? null;
+  const name = [refreshedUser.firstName, refreshedUser.lastName].filter(Boolean).join(' ').trim();
+
+  res.json(mapProfile({
+    id: refreshedUser.id,
+    userId: refreshedUser.id,
+    name,
+    email: refreshedUser.email ?? null,
+    phone: refreshedUser.phone ?? null,
+    staffPosition: refreshedUser.profileCategory ?? null,
+    bankName: updatedProfile?.bankName ?? null,
+    accountNumber: updatedProfile?.accountNumber ?? null,
+    nhifNumber: null,
+    nssfNumber: null,
+    basicSalary: Number(updatedProfile?.basicSalary ?? 0),
+    hireDate: refreshedUser.registrationDate ? refreshedUser.registrationDate.toISOString().slice(0, 10) : null,
+    createdAt: refreshedUser.createdAt ?? null,
+    latestSalary: latestPay
+      ? {
+          id: String(latestPay.id),
+          allowances: Number(latestPay.allowances ?? 0),
+          nhif: Number(latestPay.nhif ?? 0),
+          nssf: Number(latestPay.nssf ?? 0),
+          netSalary: Number(latestPay.netSalary ?? 0),
+          payDate: latestPay.payDate ?? null,
+          status: latestPay.status
+        }
+      : null
+  }));
 });
 
 // Record a salary payment for a staff profile and return the created entry
@@ -407,30 +544,57 @@ router.post('/profiles/:profileId/pay', authenticate, requirePayrollWrite, async
   const { profileId } = req.params;
   const { allowances = 0, nhif = 0, nssf = 0, payDate = new Date().toISOString().slice(0, 10), status = 'PENDING' } = req.body;
 
-  // Get base salary to compute net
-  const [profile] = await prisma.$queryRaw<any[]>`SELECT basic_salary FROM staff_profiles WHERE id = ${profileId}`;
-  if (!profile) {
-    return res.status(404).json({ message: 'Staff profile not found' });
+  let profileSalary = await prisma.staffSalary.findFirst({
+    where: { staffId: profileId },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  if (!profileSalary) {
+    const userExists = await prisma.user.findUnique({
+      where: { id: profileId },
+      select: { id: true }
+    });
+    if (!userExists) {
+      return res.status(404).json({ message: 'Staff profile not found' });
+    }
+    profileSalary = await prisma.staffSalary.create({
+      data: {
+        staffId: profileId,
+        basicSalary: 0,
+        netSalary: 0,
+        status: SalaryStatus.PENDING
+      }
+    });
   }
 
-  const basicSalary = Number(profile.basic_salary ?? 0);
+  const basicSalary = Number(profileSalary.basicSalary ?? 0);
   const netSalary = basicSalary + Number(allowances || 0) - Number(nhif || 0) - Number(nssf || 0);
 
-  const [inserted] = await prisma.$queryRaw<any[]>`
-    INSERT INTO staff_salaries (staff_profile_id, allowances, nhif, nssf, net_salary, pay_date, status)
-    VALUES (${profileId}, ${allowances}, ${nhif}, ${nssf}, ${netSalary}, ${payDate}, ${status})
-    RETURNING id, staff_profile_id, allowances, nhif, nssf, net_salary, pay_date, status, created_at`;
+  const parsedPayDate = payDate ? new Date(payDate) : new Date();
+  const safePayDate = Number.isNaN(parsedPayDate.getTime()) ? new Date() : parsedPayDate;
+  const inserted = await prisma.staffSalary.create({
+    data: {
+      staffId: profileId,
+      basicSalary,
+      allowances,
+      nhif,
+      nssf,
+      netSalary,
+      payDate: safePayDate,
+      status
+    }
+  });
 
   res.status(201).json({
     id: String(inserted.id),
-    staffProfileId: String(inserted.staff_profile_id),
+    staffProfileId: String(inserted.staffId),
     allowances: Number(inserted.allowances ?? 0),
     nhif: Number(inserted.nhif ?? 0),
     nssf: Number(inserted.nssf ?? 0),
-    netSalary: Number(inserted.net_salary ?? 0),
-    payDate: inserted.pay_date,
+    netSalary: Number(inserted.netSalary ?? 0),
+    payDate: inserted.payDate,
     status: inserted.status,
-    createdAt: inserted.created_at
+    createdAt: inserted.createdAt
   });
 });
 

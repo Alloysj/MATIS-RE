@@ -1040,20 +1040,24 @@ export async function updateAdminUser(
 }
 
 export async function approveAdminUser(userId: string, roleId: string): Promise<AdminUserSummary> {
-  return request(`${ADMIN_BASE}/users/${userId}/approve`, {
+  const updated = await request<AdminUserSummary>(`${ADMIN_BASE}/users/${userId}/approve`, {
     method: 'POST',
     body: JSON.stringify({ roleId }),
   });
+  invalidateAdminCaches([DASHBOARD_USERS_CACHE_KEY]);
+  return updated;
 }
 
 export async function setAdminUserStatus(
   userId: string,
   status: AdminUserStatusCode,
 ): Promise<AdminUserSummary> {
-  return request(`${ADMIN_BASE}/users/${userId}/reject`, {
+  const updated = await request<AdminUserSummary>(`${ADMIN_BASE}/users/${userId}/reject`, {
     method: 'POST',
     body: JSON.stringify({ status }),
   });
+  invalidateAdminCaches([DASHBOARD_USERS_CACHE_KEY]);
+  return updated;
 }
 
 export interface AdminRole {

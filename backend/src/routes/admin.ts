@@ -1201,14 +1201,22 @@ const approveUserWithRole = async (userId: string, roleId: string) => {
     throw error;
   }
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      status: UserStatus.ACTIVE,
-      updatedAt: new Date(),
-      role: { connect: { id: roleId } }
-    },
-    include: userSummaryInclude
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.userRole.upsert({
+      where: { userId_roleId: { userId, roleId } },
+      update: {},
+      create: { userId, roleId }
+    });
+
+    return tx.user.update({
+      where: { id: userId },
+      data: {
+        status: UserStatus.ACTIVE,
+        updatedAt: new Date(),
+        role: { connect: { id: roleId } }
+      },
+      include: userSummaryInclude
+    });
   });
 
   return mapUserToSummary(updated);
