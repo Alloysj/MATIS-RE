@@ -99,7 +99,7 @@ router.post('/login', async (req, res) => {
   res.json({ token });
 });
 
-router.get('/userDetails', authenticate, requireMembersReadSelf, async (req: AuthRequest, res) => {
+router.get('/userDetails', authenticate, async (req: AuthRequest, res) => {
   const user = await prisma.user.findUnique({
     where: { id: req.user!.id },
     include: { role: true, roles: { include: { role: true } } }

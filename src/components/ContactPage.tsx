@@ -74,7 +74,7 @@ export function ContactPage() {
       icon: Mail,
       title: "Email Support",
       description: "Send us detailed inquiries",
-      value: "support@vukasacco.co.ke",
+      value: "support@matis.co.ke",
       available: "Response within 2 hours",
       color: "from-[var(--neon-turquoise)] to-[var(--electric-blue)]"
     },
@@ -90,24 +90,10 @@ export function ContactPage() {
 
   const offices = [
     {
-      city: "Nairobi",
-      address: "Vuka SACCO Plaza, Westlands\nP.O. Box 12345-00100\nNairobi, Kenya",
+      city: "NaKuru",
+      address: "Matis SACCO Plaza, Westlands\nP.O. Box 12345-00100\nNairobi, Kenya",
       phone: "+254 700 000 000",
-      email: "nairobi@vukasacco.co.ke",
-      hours: "Mon-Fri: 8:00 AM - 6:00 PM\nSat: 9:00 AM - 2:00 PM"
-    },
-    {
-      city: "Mombasa",
-      address: "Transport Hub, Moi Avenue\nP.O. Box 67890-80100\nMombasa, Kenya",
-      phone: "+254 700 000 001",
-      email: "mombasa@vukasacco.co.ke",
-      hours: "Mon-Fri: 8:00 AM - 6:00 PM\nSat: 9:00 AM - 2:00 PM"
-    },
-    {
-      city: "Kisumu",
-      address: "Matatu Operators Center\nOginga Odinga Street\nKisumu, Kenya",
-      phone: "+254 700 000 002",
-      email: "kisumu@vukasacco.co.ke",
+      email: "nairobi@matissacco.co.ke",
       hours: "Mon-Fri: 8:00 AM - 6:00 PM\nSat: 9:00 AM - 2:00 PM"
     }
   ];
