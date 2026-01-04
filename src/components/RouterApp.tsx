@@ -194,6 +194,10 @@ function AppRoutes({
   }, [onLogout, navigate]);
 
   const handleNavigate = (page: string) => {
+    if (page.startsWith('/')) {
+      navigate(page);
+      return;
+    }
     navigate(`/${page === 'home' ? '' : page}`);
   };
 

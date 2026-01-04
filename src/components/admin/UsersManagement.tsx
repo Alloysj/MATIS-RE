@@ -13,18 +13,12 @@ import {
   TableHeader, 
   TableRow 
 } from '../ui/table';
-import { 
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '../ui/dropdown-menu';
+import { RowActionsMenu } from '../auth/RowActionsMenu';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { 
   Users, 
   Search, 
-  MoreVertical, 
   UserCheck, 
   UserX, 
   Edit, 
@@ -68,9 +62,7 @@ export function UsersManagement({
 }: UsersManagementProps) {
   const canCreateMember = usePermission('MEMBERS:CREATE');
   const canApproveMember = usePermission('MEMBERS:APPROVE');
-  const canDeleteMember = usePermission('MEMBERS:DELETE');
   const canManageRoles = usePermission('ADMIN:RBAC');
-  const canUpdateMember = usePermission('MEMBERS:UPDATE');
   const canReadMembers = useAnyPermission(['MEMBERS:READ', 'MEMBERS:READ_SELF']);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTab, setSelectedTab] = useState<'pending' | 'approved'>('pending');
@@ -462,34 +454,31 @@ export function UsersManagement({
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreVertical className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {canApproveMember && (
-                                  <DropdownMenuItem onClick={() => handleApproveUser(pendingUser.id)}>
-                                    <UserCheck className="h-4 w-4 mr-2" />
-                                    Approve
-                                  </DropdownMenuItem>
-                                )}
-                                {canApproveMember && (
-                                  <DropdownMenuItem
-                                    onClick={() => handleRejectUser(pendingUser.id)}
-                                    className="text-red-600"
-                                  >
-                                    <UserX className="h-4 w-4 mr-2" />
-                                    Reject
-                                  </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem onClick={() => onNavigate('app/members/approve')}>
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  View Details
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            <RowActionsMenu
+                              actions={[
+                                {
+                                  key: 'approve',
+                                  label: 'Approve',
+                                  onClick: () => handleApproveUser(pendingUser.id),
+                                  icon: <UserCheck className="h-4 w-4" />,
+                                  requiredPermissions: { anyOf: ['MEMBERS:APPROVE'] }
+                                },
+                                {
+                                  key: 'reject',
+                                  label: 'Reject',
+                                  onClick: () => handleRejectUser(pendingUser.id),
+                                  icon: <UserX className="h-4 w-4" />,
+                                  requiredPermissions: { anyOf: ['MEMBERS:APPROVE'] }
+                                },
+                                {
+                                  key: 'details',
+                                  label: 'View Details',
+                                  onClick: () => onNavigate('app/members/approve'),
+                                  icon: <Edit className="h-4 w-4" />,
+                                  requiredPermissions: { anyOf: ['MEMBERS:APPROVE'] }
+                                }
+                              ]}
+                            />
                           </TableCell>
                         </TableRow>
                       ))}
@@ -573,36 +562,31 @@ export function UsersManagement({
                             <div className="text-sm text-gray-600">{getAdditionalInfo(approvedUser)}</div>
                           </TableCell>
                           <TableCell>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
-                                  <MoreVertical className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {canUpdateMember && (
-                                  <DropdownMenuItem onClick={() => handleEditUser(approvedUser.id)}>
-                                    <Edit className="h-4 w-4 mr-2" />
-                                    Edit Profile
-                                  </DropdownMenuItem>
-                                )}
-                                {canManageRoles && (
-                                  <DropdownMenuItem onClick={() => onNavigate('app/members/roles')}>
-                                    <UserCheck className="h-4 w-4 mr-2" />
-                                    Manage Roles
-                                  </DropdownMenuItem>
-                                )}
-                                {canDeleteMember && (
-                                  <DropdownMenuItem
-                                    onClick={() => handleDeleteUser(approvedUser.id)}
-                                    className="text-red-600"
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Delete User
-                                  </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                            <RowActionsMenu
+                              actions={[
+                                {
+                                  key: 'edit',
+                                  label: 'Edit Profile',
+                                  onClick: () => handleEditUser(approvedUser.id),
+                                  icon: <Edit className="h-4 w-4" />,
+                                  requiredPermissions: { anyOf: ['MEMBERS:UPDATE'] }
+                                },
+                                {
+                                  key: 'roles',
+                                  label: 'Manage Roles',
+                                  onClick: () => onNavigate('app/members/roles'),
+                                  icon: <UserCheck className="h-4 w-4" />,
+                                  requiredPermissions: { anyOf: ['ADMIN:RBAC'] }
+                                },
+                                {
+                                  key: 'delete',
+                                  label: 'Delete User',
+                                  onClick: () => handleDeleteUser(approvedUser.id),
+                                  icon: <Trash2 className="h-4 w-4" />,
+                                  requiredPermissions: { anyOf: ['MEMBERS:DELETE'] }
+                                }
+                              ]}
+                            />
                           </TableCell>
                         </TableRow>
                       ))}

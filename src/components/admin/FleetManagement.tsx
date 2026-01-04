@@ -200,6 +200,7 @@ export function FleetManagement({
   const canAssignDriver = usePermission('VEHICLES:ASSIGN_DRIVER');
   const canInsuranceWrite = usePermission('INSURANCE:WRITE');
   const canRoutesWrite = usePermission('VEHICLES:ROUTES_WRITE');
+  const canViewMembers = usePermission('MEMBERS:READ');
   const [vehicles, setVehicles] = useState<AdminVehicleSummary[]>([]);
   const [vehiclesLoading, setVehiclesLoading] = useState<boolean>(true);
   const [vehiclesError, setVehiclesError] = useState<string | null>(null);
@@ -660,13 +661,17 @@ export function FleetManagement({
                 </TableCell>
                 <TableCell>
                   {vehicle.owner ? (
-                    <button
-                      type="button"
-                      onClick={() => handleViewOwner(vehicle.owner?.id ?? null)}
-                      className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors duration-200"
-                    >
-                      {vehicle.owner.name}
-                    </button>
+                    canViewMembers ? (
+                      <button
+                        type="button"
+                        onClick={() => handleViewOwner(vehicle.owner?.id ?? null)}
+                        className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors duration-200"
+                      >
+                        {vehicle.owner.name}
+                      </button>
+                    ) : (
+                      <span className="text-gray-900 font-medium">{vehicle.owner.name}</span>
+                    )
                   ) : (
                     <span className="text-gray-500 italic">Unavailable</span>
                   )}

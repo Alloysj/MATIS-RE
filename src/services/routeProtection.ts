@@ -1,4 +1,4 @@
-import { canAccessMenuItem, menuRegistry } from '../navigation/menuRegistry';
+import { flattenMenuNodes, getVisibleMenuSections } from '../navigation/menuRegistry';
 
 export interface User {
   id?: string;
@@ -285,11 +285,12 @@ export class RouteProtectionService {
     if (!user) return [];
     const permissions = this.getUserPermissions(user);
 
-    return menuRegistry
+    return getVisibleMenuSections(permissions)
       .map((section) => {
-        const children = section.items
-          .filter((item) => canAccessMenuItem(item, permissions))
-          .map((item) => ({ label: item.label, route: item.path }));
+        const children = flattenMenuNodes(section.nodes).map((node) => ({
+          label: node.label,
+          route: node.path ?? ''
+        }));
 
         if (children.length === 0) {
           return null;

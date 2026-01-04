@@ -1,262 +1,330 @@
-import { LucideIcon, Users, Car, DollarSign, Shield, CreditCard } from 'lucide-react';
+import {
+  LucideIcon,
+  Users,
+  Car,
+  DollarSign,
+  Shield,
+  CreditCard,
+  FileText,
+  Settings,
+  LayoutDashboard
+} from 'lucide-react';
+import { MODULE_PERMISSIONS } from './modulePermissions';
+import { MenuRule, canAccessRule } from './permissionRules';
 
-export type MenuRule = {
-  anyOf: string[];
-  allOf?: string[];
-};
-
-export type MenuItem = {
+export type MenuNode = {
   key: string;
   label: string;
-  path: string;
   icon?: LucideIcon;
-  requiredPermissions: MenuRule;
+  path?: string;
+  requiredPermissions?: MenuRule;
+  children?: MenuNode[];
 };
 
 export type MenuSection = {
   key: string;
   label?: string;
-  items: MenuItem[];
+  nodes: MenuNode[];
 };
 
-export const canAccessMenuItem = (item: MenuItem, permissions: string[]): boolean => {
-  const anyOf = item.requiredPermissions?.anyOf ?? [];
-  const allOf = item.requiredPermissions?.allOf ?? [];
-  const hasAny = anyOf.length === 0 || anyOf.some((permission) => permissions.includes(permission));
-  const hasAll = allOf.length === 0 || allOf.every((permission) => permissions.includes(permission));
-  return hasAny && hasAll;
+const moduleRule = (key: string): MenuRule => {
+  const module = MODULE_PERMISSIONS.find((entry) => entry.key === key);
+  return { anyOf: module?.visibilityPermissions ?? [] };
+};
+
+const filterNode = (node: MenuNode, permissions: string[]): MenuNode | null => {
+  if (node.children && node.children.length > 0) {
+    const filteredChildren = node.children
+      .map((child) => filterNode(child, permissions))
+      .filter(Boolean) as MenuNode[];
+    const passesRule = canAccessRule(node.requiredPermissions, permissions);
+    if (!passesRule || filteredChildren.length === 0) {
+      return null;
+    }
+    return { ...node, children: filteredChildren };
+  }
+
+  if (!node.path) {
+    return null;
+  }
+
+  return canAccessRule(node.requiredPermissions, permissions) ? node : null;
 };
 
 export const getVisibleMenuSections = (permissions: string[]): MenuSection[] =>
   menuRegistry
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => canAccessMenuItem(item, permissions))
+      nodes: section.nodes
+        .map((node) => filterNode(node, permissions))
+        .filter(Boolean) as MenuNode[]
     }))
-    .filter((section) => section.items.length > 0);
+    .filter((section) => section.nodes.length > 0);
 
 export const getFirstAccessiblePath = (permissions: string[]): string | null => {
-  for (const section of menuRegistry) {
-    for (const item of section.items) {
-      if (canAccessMenuItem(item, permissions)) {
-        return item.path;
+  const sections = getVisibleMenuSections(permissions);
+  for (const section of sections) {
+    for (const node of section.nodes) {
+      const stack: MenuNode[] = [node];
+      while (stack.length > 0) {
+        const current = stack.shift();
+        if (!current) break;
+        if (current.path) {
+          return current.path;
+        }
+        if (current.children?.length) {
+          stack.unshift(...current.children);
+        }
       }
     }
   }
   return null;
 };
 
+export const flattenMenuNodes = (nodes: MenuNode[]): MenuNode[] => {
+  const result: MenuNode[] = [];
+  nodes.forEach((node) => {
+    if (node.path) {
+      result.push(node);
+      return;
+    }
+    if (node.children?.length) {
+      result.push(...flattenMenuNodes(node.children));
+    }
+  });
+  return result;
+};
+
 export const menuRegistry: MenuSection[] = [
   {
     key: 'modules',
     label: 'Modules',
-    items: [
+    nodes: [
       {
         key: 'dashboard',
         label: 'Dashboard',
-        path: 'app/dashboard',
-        icon: Users,
+        path: '/app/dashboard',
+        icon: LayoutDashboard,
         requiredPermissions: {
-          anyOf: ['FINANCE:VIEW', 'VEHICLES:READ', 'LOANS:VIEW']
+          anyOf: [
+            'FINANCE:VIEW',
+            'VEHICLES:READ',
+            'LOANS:VIEW',
+            'MEMBERS:READ'
+          ]
         }
       },
       {
-        key: 'members',
+        key: 'members-group',
         label: 'Members',
-        path: 'app/members',
         icon: Users,
-        requiredPermissions: {
-          anyOf: ['MEMBERS:READ', 'MEMBERS:READ_SELF', 'MEMBERS:CREATE', 'MEMBERS:APPROVE']
-        }
+        requiredPermissions: moduleRule('members'),
+        children: [
+          {
+            key: 'members',
+            label: 'Members List',
+            path: '/app/members',
+            icon: Users,
+            requiredPermissions: moduleRule('members')
+          },
+          {
+            key: 'member-approvals',
+            label: 'Approvals',
+            path: '/app/members/approve',
+            icon: Users,
+            requiredPermissions: { anyOf: ['MEMBERS:APPROVE'] }
+          },
+          {
+            key: 'member-create',
+            label: 'Create Member',
+            path: '/app/members/create',
+            icon: Users,
+            requiredPermissions: { anyOf: ['MEMBERS:CREATE'] }
+          },
+          {
+            key: 'member-profiles',
+            label: 'Profiles',
+            path: '/app/members/profiles',
+            icon: Users,
+            requiredPermissions: { anyOf: ['MEMBERS:READ'] }
+          },
+        ]
       },
       {
-        key: 'vehicles',
-        label: 'Vehicles',
-        path: 'app/vehicles',
+        key: 'fleet-group',
+        label: 'Fleet',
         icon: Car,
-        requiredPermissions: {
-          anyOf: ['VEHICLES:READ', 'VEHICLES:READ_SELF']
-        }
+        requiredPermissions: moduleRule('vehicles'),
+        children: [
+          {
+            key: 'vehicles',
+            label: 'Vehicles',
+            path: '/app/vehicles',
+            icon: Car,
+            requiredPermissions: moduleRule('vehicles')
+          },
+          {
+            key: 'routes',
+            label: 'Route Management',
+            path: '/app/vehicles/routes',
+            icon: Car,
+            requiredPermissions: { anyOf: ['VEHICLES:ROUTES_WRITE'] }
+          },
+          {
+            key: 'matatus',
+            label: 'Matatu Management',
+            path: '/app/vehicles/matatus',
+            icon: Car,
+            requiredPermissions: { anyOf: ['VEHICLES:READ'] }
+          }
+        ]
       },
       {
-        key: 'remittances',
-        label: 'Remittances',
-        path: 'app/remittances',
+        key: 'finance-group',
+        label: 'Finance',
         icon: DollarSign,
-        requiredPermissions: {
-          anyOf: ['FINANCE:COLLECT', 'FINANCE:VIEW']
-        }
+        requiredPermissions: { anyOf: ['FINANCE:COLLECT', 'FINANCE:VIEW', 'INSURANCE:VIEW', 'INSURANCE:WRITE', 'PAYROLL:READ', 'EXPENSES:READ'] },
+        children: [
+          {
+            key: 'remittances',
+            label: 'Remittances',
+            path: '/app/remittances',
+            icon: DollarSign,
+            requiredPermissions: moduleRule('remittances')
+          },
+          {
+            key: 'insurance',
+            label: 'Insurance',
+            path: '/app/insurance',
+            icon: Shield,
+            requiredPermissions: moduleRule('insurance')
+          },
+          {
+            key: 'payroll',
+            label: 'Payroll',
+            path: '/app/payroll',
+            icon: DollarSign,
+            requiredPermissions: { anyOf: ['PAYROLL:READ'] }
+          },
+          {
+            key: 'payroll-admin',
+            label: 'Payroll Admin',
+            path: '/app/payroll/admin',
+            icon: DollarSign,
+            requiredPermissions: { anyOf: ['PAYROLL:READ'] }
+          },
+          {
+            key: 'expenses',
+            label: 'Expenses',
+            path: '/app/expenses',
+            icon: Shield,
+            requiredPermissions: { anyOf: ['EXPENSES:READ'] }
+          }
+        ]
       },
       {
-        key: 'insurance',
-        label: 'Insurance',
-        path: 'app/insurance',
-        icon: Shield,
-        requiredPermissions: {
-          anyOf: ['INSURANCE:VIEW', 'INSURANCE:WRITE']
-        }
-      },
-      {
-        key: 'loans',
+        key: 'loans-group',
         label: 'Loans',
-        path: 'app/loans',
         icon: CreditCard,
-        requiredPermissions: {
-          anyOf: ['LOANS:VIEW', 'LOANS:APPLY', 'LOANS:APPROVE']
-        }
+        requiredPermissions: moduleRule('loans'),
+        children: [
+          {
+            key: 'loans',
+            label: 'Loans',
+            path: '/app/loans',
+            icon: CreditCard,
+            requiredPermissions: moduleRule('loans')
+          },
+          {
+            key: 'loans-manage',
+            label: 'Loan Management',
+            path: '/app/loans/manage',
+            icon: CreditCard,
+            requiredPermissions: { anyOf: ['LOANS:VIEW', 'LOANS:APPLY', 'LOANS:APPROVE'] }
+          }
+        ]
       }
     ]
   },
   {
-    key: 'operations',
-    label: 'Operations',
-    items: [
+    key: 'reports',
+    label: 'Reports',
+    nodes: [
       {
-        key: 'payroll',
-        label: 'Payroll',
-        path: 'app/payroll',
-        icon: DollarSign,
-        requiredPermissions: {
-          anyOf: ['PAYROLL:READ']
-        }
-      },
-      {
-        key: 'expenses',
-        label: 'Expenses',
-        path: 'app/expenses',
-        icon: Shield,
-        requiredPermissions: {
-          anyOf: ['EXPENSES:READ']
-        }
-      },
-      {
-        key: 'reports',
+        key: 'reports-group',
         label: 'Reports',
-        path: 'app/reports',
-        icon: Shield,
-        requiredPermissions: {
-          anyOf: ['FINANCE:VIEW', 'MEMBERS:READ', 'VEHICLES:READ']
-        }
+        icon: FileText,
+        requiredPermissions: { anyOf: ['FINANCE:VIEW', 'MEMBERS:READ', 'VEHICLES:READ'] },
+        children: [
+          {
+            key: 'reports',
+            label: 'Overview',
+            path: '/app/reports',
+            icon: FileText,
+            requiredPermissions: { anyOf: ['FINANCE:VIEW'] }
+          },
+          {
+            key: 'reports-users',
+            label: 'User Reports',
+            path: '/app/reports/users',
+            icon: Users,
+            requiredPermissions: { anyOf: ['MEMBERS:READ'] }
+          },
+          {
+            key: 'reports-financials',
+            label: 'Financial Reports',
+            path: '/app/reports/financials',
+            icon: DollarSign,
+            requiredPermissions: { anyOf: ['FINANCE:VIEW'] }
+          },
+          {
+            key: 'reports-fleet',
+            label: 'Fleet Reports',
+            path: '/app/reports/fleet',
+            icon: Car,
+            requiredPermissions: { anyOf: ['VEHICLES:READ'] }
+          }
+        ]
       }
     ]
   },
   {
     key: 'account',
     label: 'Account',
-    items: [
+    nodes: [
       {
         key: 'staff-profile',
         label: 'My Profile',
-        path: 'app/staff/profile',
+        path: '/app/staff/profile',
         icon: Users,
-        requiredPermissions: {
-          anyOf: ['STAFF:READ', 'MEMBERS:READ_SELF']
-        }
+        requiredPermissions: { anyOf: ['STAFF:READ', 'MEMBERS:READ_SELF'] }
       }
     ]
   },
   {
     key: 'admin-tools',
     label: 'Admin',
-    items: [
+    nodes: [
       {
         key: 'admin-dashboard',
         label: 'Admin Dashboard',
-        path: 'app/admin/dashboard',
+        path: '/app/admin/dashboard',
         icon: Users,
-        requiredPermissions: {
-          anyOf: ['MEMBERS:READ', 'VEHICLES:READ', 'FINANCE:VIEW']
-        }
-      },
-      {
-        key: 'member-approvals',
-        label: 'Member Approvals',
-        path: 'app/members/approve',
-        icon: Users,
-        requiredPermissions: {
-          anyOf: ['MEMBERS:APPROVE']
-        }
-      },
-      {
-        key: 'role-management',
-        label: 'Role Management',
-        path: 'app/members/roles',
-        icon: Shield,
-        requiredPermissions: {
-          anyOf: ['ADMIN:RBAC']
-        }
-      },
-      {
-        key: 'member-create',
-        label: 'Create Member',
-        path: 'app/members/create',
-        icon: Users,
-        requiredPermissions: {
-          anyOf: ['MEMBERS:CREATE']
-        }
-      },
-      {
-        key: 'member-profiles',
-        label: 'Member Profiles',
-        path: 'app/members/profiles',
-        icon: Users,
-        requiredPermissions: {
-          anyOf: ['MEMBERS:READ']
-        }
-      },
-      {
-        key: 'route-management',
-        label: 'Route Management',
-        path: 'app/vehicles/routes',
-        icon: Car,
-        requiredPermissions: {
-          anyOf: ['VEHICLES:ROUTES_WRITE', 'VEHICLES:READ']
-        }
-      },
-      {
-        key: 'payroll-admin',
-        label: 'Payroll Admin',
-        path: 'app/payroll/admin',
-        icon: DollarSign,
-        requiredPermissions: {
-          anyOf: ['PAYROLL:READ']
-        }
-      },
-      {
-        key: 'reports-users',
-        label: 'User Reports',
-        path: 'app/reports/users',
-        icon: Users,
-        requiredPermissions: {
-          anyOf: ['MEMBERS:READ']
-        }
-      },
-      {
-        key: 'reports-financials',
-        label: 'Financial Reports',
-        path: 'app/reports/financials',
-        icon: DollarSign,
-        requiredPermissions: {
-          anyOf: ['FINANCE:VIEW']
-        }
-      },
-      {
-        key: 'reports-fleet',
-        label: 'Fleet Reports',
-        path: 'app/reports/fleet',
-        icon: Car,
-        requiredPermissions: {
-          anyOf: ['VEHICLES:READ']
-        }
+        requiredPermissions: { anyOf: ['MEMBERS:READ', 'VEHICLES:READ', 'FINANCE:VIEW'] }
       },
       {
         key: 'staff-profiles',
         label: 'Staff Profiles',
-        path: 'app/admin/staff-profiles',
-        icon: Users,
-        requiredPermissions: {
-          anyOf: ['ADMIN:RBAC']
-        }
+        path: '/app/admin/staff-profiles',
+        icon: Settings,
+        requiredPermissions: { anyOf: ['ADMIN:RBAC'] }
+      },
+      {
+        key: 'role-management',
+        label: 'Role Management',
+        path: '/app/members/roles',
+        icon: Settings,
+        requiredPermissions: { anyOf: ['ADMIN:RBAC'] }
       }
     ]
   }

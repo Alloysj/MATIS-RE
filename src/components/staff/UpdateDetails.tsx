@@ -2,6 +2,7 @@ import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } f
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
+import { PermissionButton } from '../auth/PermissionButton';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
@@ -271,9 +272,13 @@ export function UpdateDetails({
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => onNavigate('app/dashboard')}>
+            <PermissionButton
+              variant="outline"
+              onClick={() => onNavigate('app/dashboard')}
+              rule={{ anyOf: ['FINANCE:VIEW', 'VEHICLES:READ', 'LOANS:VIEW', 'MEMBERS:READ'] }}
+            >
               Back to Dashboard
-            </Button>
+            </PermissionButton>
             <Button onClick={() => loadProfile()}>Retry</Button>
           </CardContent>
         </Card>

@@ -2,6 +2,7 @@ import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useState } f
 import { StaffLayout } from './StaffLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
+import { PermissionButton } from '../auth/PermissionButton';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -341,9 +342,13 @@ export function ExpenseTracking({
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={() => onNavigate('app/dashboard')}>
+            <PermissionButton
+              variant="outline"
+              onClick={() => onNavigate('app/dashboard')}
+              rule={{ anyOf: ['FINANCE:VIEW', 'VEHICLES:READ', 'LOANS:VIEW', 'MEMBERS:READ'] }}
+            >
               Back to Dashboard
-            </Button>
+            </PermissionButton>
             <Button onClick={loadExpenses}>Retry</Button>
           </CardContent>
         </Card>

@@ -30,7 +30,7 @@ export function AppLanding({ user, onNavigate, onLogout }: AppLandingProps) {
 
   const firstPath = getFirstAccessiblePath(access.permissions);
   if (firstPath) {
-    return <Navigate to={`/${firstPath}`} replace />;
+    return <Navigate to={firstPath} replace />;
   }
 
   return (

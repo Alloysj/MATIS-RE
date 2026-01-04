@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui
 import { Button } from '../ui/button';
 import { Avatar, AvatarFallback } from '../ui/avatar';
 import { Badge } from '../ui/badge';
+import { PermissionButton } from '../auth/PermissionButton';
 import {
   User,
   DollarSign,
@@ -359,28 +360,32 @@ export function StaffDashboard({
         description: 'Record new SACCO expense',
         icon: Receipt,
         action: () => onNavigate('app/expenses'),
-        color: 'from-[var(--neon-orange)] to-[var(--neon-yellow)]'
+        color: 'from-[var(--neon-orange)] to-[var(--neon-yellow)]',
+        rule: { anyOf: ['EXPENSES:READ', 'EXPENSES:WRITE'] }
       },
       {
         title: 'Pending Loans',
         description: 'Review loan applications',
         icon: CreditCard,
         action: () => onNavigate('app/loans/manage'),
-        color: 'from-[var(--neon-turquoise)] to-[var(--electric-blue)]'
+        color: 'from-[var(--neon-turquoise)] to-[var(--electric-blue)]',
+        rule: { anyOf: ['LOANS:VIEW', 'LOANS:APPLY', 'LOANS:APPROVE'] }
       },
       {
         title: 'Salary Advance',
         description: 'Apply for salary advance',
         icon: DollarSign,
         action: () => onNavigate('app/payroll'),
-        color: 'from-[var(--neon-purple)] to-[var(--hot-pink)]'
+        color: 'from-[var(--neon-purple)] to-[var(--hot-pink)]',
+        rule: { anyOf: ['PAYROLL:READ', 'PAYROLL:WRITE'] }
       },
       {
         title: 'Financial Reports',
         description: 'Generate financial summaries',
         icon: TrendingUp,
         action: () => onNavigate('app/reports'),
-        color: 'from-[var(--lime-green)] to-[var(--neon-turquoise)]'
+        color: 'from-[var(--lime-green)] to-[var(--neon-turquoise)]',
+        rule: { anyOf: ['FINANCE:VIEW'] }
       }
     ],
     [onNavigate]
@@ -442,13 +447,14 @@ export function StaffDashboard({
                 </p>
               </div>
             </div>
-            <Button
+            <PermissionButton
               onClick={() => onNavigate('app/staff/profile')}
               className="bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--neon-yellow)] text-black hover:opacity-90"
+              rule={{ anyOf: ['STAFF:READ', 'MEMBERS:READ_SELF'] }}
             >
               <User className="w-4 h-4 mr-2" />
               Update Profile
-            </Button>
+            </PermissionButton>
           </div>
         </div>
 
@@ -615,17 +621,18 @@ export function StaffDashboard({
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {quickLinks.map((link) => (
-                <Button
+                <PermissionButton
                   key={link.title}
                   onClick={link.action}
                   className={`h-auto p-4 bg-gradient-to-r ${link.color} text-black hover:opacity-90 flex flex-col items-center space-y-2`}
+                  rule={link.rule}
                 >
                   <link.icon className="h-8 w-8" />
                   <div className="text-center">
                     <p className="font-semibold">{link.title}</p>
                     <p className="text-xs opacity-80">{link.description}</p>
                   </div>
-                </Button>
+                </PermissionButton>
               ))}
             </div>
           </CardContent>

@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
+import { PermissionButton } from '../auth/PermissionButton';
 import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import {
@@ -249,10 +250,14 @@ export function LoanApplications({
             <h1 className="text-2xl font-bold text-gray-900">Loan Applications</h1>
             <p className="text-gray-600 mt-1">Review and manage pending loan applications.</p>
           </div>
-          <Button onClick={() => onNavigate('app/insurance')} variant="outline">
+          <PermissionButton
+            onClick={() => onNavigate('app/insurance')}
+            variant="outline"
+            rule={{ anyOf: ['INSURANCE:VIEW', 'INSURANCE:WRITE'] }}
+          >
             <DollarSign className="h-4 w-4 mr-2" />
             Financial Overview
-          </Button>
+          </PermissionButton>
         </div>
 
         {error && (

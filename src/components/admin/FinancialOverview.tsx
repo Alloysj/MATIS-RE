@@ -2,6 +2,7 @@ import { ComponentType, ReactNode, useEffect, useMemo, useState } from 'react';
 import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
+import { PermissionButton } from '../auth/PermissionButton';
 import { Badge } from '../ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -485,9 +486,13 @@ export function FinancialOverview({
               <TabsContent value="loans" className="mt-6">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="font-semibold text-gray-900">Recent Loan Activity</h3>
-                  <Button variant="outline" onClick={() => onNavigate('app/loans')}>
+                  <PermissionButton
+                    variant="outline"
+                    onClick={() => onNavigate('app/loans')}
+                    rule={{ anyOf: ['LOANS:VIEW', 'LOANS:APPLY', 'LOANS:APPROVE'] }}
+                  >
                     View All Loans
-                  </Button>
+                  </PermissionButton>
                 </div>
                 <Table>
                   <TableHeader>
@@ -558,9 +563,13 @@ export function FinancialOverview({
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button variant="outline" onClick={() => onNavigate('app/insurance')}>
+                    <PermissionButton
+                      variant="outline"
+                      onClick={() => onNavigate('app/insurance')}
+                      rule={{ anyOf: ['INSURANCE:VIEW', 'INSURANCE:WRITE'] }}
+                    >
                       View All Accounts
-                    </Button>
+                    </PermissionButton>
                   </div>
                 </div>
                 <Table>
@@ -605,7 +614,7 @@ export function FinancialOverview({
                             </TableCell>
                             <TableCell>{account.vehicle?.plateNumber ?? 'N/A'}</TableCell>
                             <TableCell>
-                              <Button
+                              <PermissionButton
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
@@ -614,9 +623,10 @@ export function FinancialOverview({
                                   }
                                   onNavigate('app/reports/financials');
                                 }}
+                                rule={{ anyOf: ['FINANCE:VIEW'] }}
                               >
                                 View Reports
-                              </Button>
+                              </PermissionButton>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -627,9 +637,13 @@ export function FinancialOverview({
               <TabsContent value="insurance" className="mt-6">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="font-semibold text-gray-900">Recent Insurance Activity</h3>
-                  <Button variant="outline" onClick={() => onNavigate('app/insurance')}>
+                  <PermissionButton
+                    variant="outline"
+                    onClick={() => onNavigate('app/insurance')}
+                    rule={{ anyOf: ['INSURANCE:VIEW', 'INSURANCE:WRITE'] }}
+                  >
                     View All Policies
-                  </Button>
+                  </PermissionButton>
                 </div>
                 <Table>
                   <TableHeader>

@@ -6,10 +6,12 @@ import {
   Menu,
   X,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  ChevronDown
 } from 'lucide-react';
 import { useAccess } from '../../context/AccessContext';
-import { getVisibleMenuSections } from '../../navigation/menuRegistry';
+import { flattenMenuNodes, getVisibleMenuSections, type MenuNode } from '../../navigation/menuRegistry';
+import { PermissionLink } from '../auth/PermissionLink';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -26,6 +28,7 @@ interface AppLayoutProps {
 export function AppLayout({ children, user, currentPage, onNavigate, onLogout }: AppLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const access = useAccess();
   const visibleSections = useMemo(
     () => getVisibleMenuSections(access.permissions),
@@ -34,6 +37,59 @@ export function AppLayout({ children, user, currentPage, onNavigate, onLogout }:
 
   const toggleSidebarCollapse = () => {
     setSidebarCollapsed(!sidebarCollapsed);
+  };
+
+  const toggleNode = (key: string) => {
+    setExpandedNodes((prev) => ({ ...prev, [key]: !(prev[key] ?? true) }));
+  };
+
+  const renderNode = (node: MenuNode, depth = 0) => {
+    const isGroup = Array.isArray(node.children) && node.children.length > 0;
+    const isExpanded = expandedNodes[node.key] ?? true;
+    const paddingLeft = sidebarCollapsed ? undefined : { paddingLeft: `${Math.min(depth * 12 + 12, 48)}px` };
+
+    if (isGroup) {
+      return (
+        <div key={node.key} className="space-y-2">
+          <button
+            type="button"
+            onClick={() => toggleNode(node.key)}
+            className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'} px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500 hover:text-gray-700`}
+            title={sidebarCollapsed ? node.label : ''}
+          >
+            <span className="flex items-center" style={paddingLeft}>
+              {node.icon && <node.icon className={`h-4 w-4 ${sidebarCollapsed ? '' : 'mr-2'}`} />}
+              {!sidebarCollapsed && node.label}
+            </span>
+            {!sidebarCollapsed && (
+              <ChevronDown className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+            )}
+          </button>
+          {!sidebarCollapsed && isExpanded && (
+            <div className="space-y-1">
+              {node.children.map((child) => renderNode(child, depth + 1))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <PermissionLink
+        key={node.key}
+        to={node.path}
+        rule={node.requiredPermissions}
+        className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} px-3 py-2 text-sm font-medium rounded-lg group ${
+          currentPage === node.path.replace(/^\//, '')
+            ? 'bg-gradient-to-r from-[var(--neon-turquoise)]/10 to-[var(--neon-yellow)]/10 text-gray-900 border-l-2 border-[var(--neon-turquoise)]'
+            : 'text-gray-700 hover:bg-gray-100'
+        }`}
+        title={sidebarCollapsed ? node.label : undefined}
+      >
+        {node.icon && <node.icon className={`h-4 w-4 ${sidebarCollapsed ? '' : 'mr-3'}`} />}
+        {!sidebarCollapsed && node.label}
+      </PermissionLink>
+    );
   };
 
   return (
@@ -95,7 +151,7 @@ export function AppLayout({ children, user, currentPage, onNavigate, onLogout }:
             </p>
           )}
 
-          {!access.loading && visibleSections.map((section) => (
+          {!access.loading && !sidebarCollapsed && visibleSections.map((section) => (
             <div key={section.key}>
               {!sidebarCollapsed && section.label && (
                 <p className="text-xs uppercase tracking-wide text-gray-400 px-2 mb-2">
@@ -103,24 +159,18 @@ export function AppLayout({ children, user, currentPage, onNavigate, onLogout }:
                 </p>
               )}
               <div className="space-y-2">
-                {section.items.map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => onNavigate(item.path)}
-                    className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : ''} px-3 py-2 text-sm font-medium rounded-lg group ${
-                      currentPage === item.path
-                        ? 'bg-gradient-to-r from-[var(--neon-turquoise)]/10 to-[var(--neon-yellow)]/10 text-gray-900 border-l-2 border-[var(--neon-turquoise)]'
-                        : 'text-gray-700 hover:bg-gray-100'
-                    } ${sidebarCollapsed ? 'tooltip-trigger' : ''}`}
-                    title={sidebarCollapsed ? item.label : ''}
-                  >
-                    {item.icon && <item.icon className={`h-4 w-4 ${sidebarCollapsed ? '' : 'mr-3'}`} />}
-                    {!sidebarCollapsed && item.label}
-                  </button>
-                ))}
+                {section.nodes.map((node) => renderNode(node))}
               </div>
             </div>
           ))}
+
+          {!access.loading && sidebarCollapsed && (
+            <div className="space-y-2">
+              {flattenMenuNodes(visibleSections.flatMap((section) => section.nodes)).map((node) =>
+                renderNode(node)
+              )}
+            </div>
+          )}
         </nav>
       </div>
 

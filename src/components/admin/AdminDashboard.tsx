@@ -3,6 +3,7 @@ import { AdminLayout } from './AdminLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { PermissionButton } from '../auth/PermissionButton';
 import {
   Users,
   Car,
@@ -362,28 +363,32 @@ export function AdminDashboard({
       description: 'Add, edit, or approve user accounts',
       icon: Users,
       color: 'from-[var(--neon-turquoise)] to-[var(--electric-blue)]',
-      action: () => onNavigate('app/members')
+      action: () => onNavigate('app/members'),
+      rule: { anyOf: ['MEMBERS:READ', 'MEMBERS:READ_SELF', 'MEMBERS:CREATE', 'MEMBERS:APPROVE'] }
     },
     {
       title: 'Fleet Management',
       description: 'Oversee vehicle registrations and status',
       icon: Car,
       color: 'from-[var(--neon-yellow)] to-[var(--neon-orange)]',
-      action: () => onNavigate('app/vehicles')
+      action: () => onNavigate('app/vehicles'),
+      rule: { anyOf: ['VEHICLES:READ', 'VEHICLES:READ_SELF'] }
     },
     {
       title: 'Approve Loans',
       description: 'Review and approve loan applications',
       icon: DollarSign,
       color: 'from-[var(--neon-orange)] to-[var(--hot-pink)]',
-      action: () => onNavigate('app/loans')
+      action: () => onNavigate('app/loans'),
+      rule: { anyOf: ['LOANS:VIEW', 'LOANS:APPLY', 'LOANS:APPROVE'] }
     },
     {
       title: 'Generate Reports',
       description: 'Create financial and operational reports',
       icon: FileText,
       color: 'from-[var(--neon-purple)] to-[var(--neon-turquoise)]',
-      action: () => onNavigate('app/reports/users')
+      action: () => onNavigate('app/reports/users'),
+      rule: { anyOf: ['FINANCE:VIEW', 'MEMBERS:READ', 'VEHICLES:READ'] }
     }
   ];
 
@@ -526,19 +531,25 @@ export function AdminDashboard({
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Quick Actions</CardTitle>
-              <Button variant="ghost" size="icon" onClick={() => onNavigate('app/members')}>
+              <PermissionButton
+                variant="ghost"
+                size="icon"
+                onClick={() => onNavigate('app/members')}
+                rule={{ anyOf: ['MEMBERS:READ', 'MEMBERS:READ_SELF', 'MEMBERS:CREATE', 'MEMBERS:APPROVE'] }}
+              >
                 <FileText className="h-4 w-4" />
-              </Button>
+              </PermissionButton>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {quickActions.map((action, index) => (
-                <Button
+                <PermissionButton
                   key={index}
                   variant="outline"
                   className="h-auto p-4 flex-col items-start space-y-2 hover:shadow-lg transition-all"
                   onClick={action.action}
+                  rule={action.rule}
                 >
                   <div className={`p-2 rounded-lg bg-gradient-to-r ${action.color}`}>
                     <action.icon className="h-5 w-5 text-white" />
@@ -549,7 +560,7 @@ export function AdminDashboard({
                       {action.description}
                     </p>
                   </div>
-                </Button>
+                </PermissionButton>
               ))}
             </div>
           </CardContent>

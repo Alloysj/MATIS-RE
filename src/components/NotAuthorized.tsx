@@ -1,7 +1,12 @@
 import { Button } from './ui/button';
 import { Shield, Home } from 'lucide-react';
+import { useAccess } from '../context/AccessContext';
+import { getFirstAccessiblePath } from '../navigation/menuRegistry';
 
 export function NotAuthorized({ onNavigate }: { onNavigate: (page: string) => void }) {
+  const access = useAccess();
+  const fallbackPath = getFirstAccessiblePath(access.permissions);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-md text-center">
@@ -12,12 +17,14 @@ export function NotAuthorized({ onNavigate }: { onNavigate: (page: string) => vo
         <p className="text-white/70 mb-6">
           You do not have permission to access this page.
         </p>
-        <Button
-          onClick={() => onNavigate('app/vehicles')}
-          className="w-full bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-slate-900 hover:opacity-90"
-        >
-          Go to App
-        </Button>
+        {fallbackPath && (
+          <Button
+            onClick={() => onNavigate(fallbackPath)}
+            className="w-full bg-gradient-to-r from-[var(--neon-turquoise)] to-[var(--electric-blue)] text-slate-900 hover:opacity-90"
+          >
+            Go to App
+          </Button>
+        )}
         <Button
           variant="outline"
           onClick={() => onNavigate('home')}
